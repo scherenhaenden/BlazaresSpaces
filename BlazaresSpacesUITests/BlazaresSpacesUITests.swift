@@ -33,6 +33,15 @@ final class BlazaresSpacesUITests: XCTestCase {
     }
 
     @MainActor
+    func testDesktopManagerShowsSafeNonDestructiveControls() throws {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["desktopManagerSection"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["addWorkspaceButton"].exists)
+        XCTAssertTrue(app.buttons["enableDesktopSwitchingButton"].exists)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

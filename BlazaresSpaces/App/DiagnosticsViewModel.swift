@@ -19,6 +19,10 @@ final class DiagnosticsViewModel: ObservableObject {
     @Published private(set) var workspaceManager = WorkspaceManager()
     @Published private(set) var experimentalWorkspaceModeEnabled = false
     @Published private(set) var workspaceSwitchResult: WorkspaceSwitchResult?
+    @Published private(set) var workspaceSwitchState: WorkspaceSwitchState = .idle
+    @Published private(set) var workspaceTopologyChanged = false
+    @Published private(set) var globalShortcutsEnabled = false
+    @Published private(set) var shortcutConfiguration = GlobalShortcutConfiguration()
 
     private let permissionManager = AccessibilityPermissionManager()
     private let displayManager = DisplayManager()
@@ -26,11 +30,54 @@ final class DiagnosticsViewModel: ObservableObject {
     private let managementPolicy = WindowManagementPolicy.developmentDefaults
     private let externalWindowController = AXExternalWindowController()
     private let workspaceEngine = WorkspaceSwitchEngine()
+    private let workspaceConfigurationStore = WorkspaceConfigurationStore()
+    private let shortcutConfigurationStore = GlobalShortcutConfigurationStore()
+    private let shortcutManager = GlobalShortcutManager()
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BlazaresSpaces", category: "Diagnostics")
+    private var switchQueue = WorkspaceSwitchRequestQueue()
+    private var screenParametersObserver: NSObjectProtocol?
+    private var terminationObserver: NSObjectProtocol?
+
+    init() {
+        if let configuration = workspaceConfigurationStore.load() {
+            workspaceManager.apply(configuration: configuration)
+        }
+        shortcutConfiguration = shortcutConfigurationStore.load()
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleDisplayTopologyChange()
+            }
+        }
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.recoverForTermination()
+            }
+        }
+    }
+
+    deinit {
+        if let screenParametersObserver { NotificationCenter.default.removeObserver(screenParametersObserver) }
+        if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
+    }
 
     func refresh() {
+        let previousDisplays = displays
         accessibilityGranted = permissionManager.isTrusted
         displays = displayManager.displays()
+
+        if !previousDisplays.isEmpty && previousDisplays != displays {
+            workspaceTopologyChanged = true
+            workspaceSwitchState = .degraded(message: "Display topology changed; switching is paused until recovery or refresh validation.")
+            actionStatus = "Display topology changed. Review the topology and use Recover Managed Windows before switching again."
+        }
 
         if accessibilityGranted {
             let result = windowDiscovery.discover(displays: displays)
@@ -39,7 +86,14 @@ final class DiagnosticsViewModel: ObservableObject {
         } else {
             windows = []
             issues = []
+            shortcutManager.stop()
+            globalShortcutsEnabled = false
+            if experimentalWorkspaceModeEnabled {
+                workspaceSwitchState = .degraded(message: "Accessibility permission is unavailable.")
+                actionStatus = "Accessibility permission is unavailable; AX mutations are paused. Re-enable it in System Settings."
+            }
         }
+        if accessibilityGranted && !globalShortcutsEnabled { startGlobalShortcuts() }
         lastRefresh = Date()
     }
 
@@ -115,7 +169,34 @@ final class DiagnosticsViewModel: ObservableObject {
     }
 
     func isExplicitlyAuthorizedForWorkspace(_ window: WindowSnapshot) -> Bool {
-        selectedTestWindowID == window.runtimeIdentity || selectedTestSetIDs.contains(window.runtimeIdentity)
+        selectedTestWindowID == window.runtimeIdentity
+            || selectedTestSetIDs.contains(window.runtimeIdentity)
+            || workspaceManager.member(for: window.runtimeIdentity) != nil
+    }
+
+    func isManaged(_ window: WindowSnapshot) -> Bool {
+        workspaceManager.member(for: window.runtimeIdentity) != nil
+    }
+
+    func manageWindow(_ window: WindowSnapshot) {
+        guard case let .success(authorized) = WindowAuthorization.authorize(window, policy: managementPolicy) else {
+            actionStatus = "This window is excluded or lacks a safe runtime identifier."
+            return
+        }
+        if let member = workspaceManager.member(for: authorized.runtimeIdentity) {
+            actionStatus = "(window.applicationName) is already managed."
+            if member.workspaceIDs.isEmpty && !member.visibleOnAllWorkspaces {
+                workspaceManager.moveToWorkspace(member, workspaceID: workspaceManager.activeWorkspaceID)
+            }
+            return
+        }
+        let member = WorkspaceMember(
+            authorizedWindow: authorized,
+            logicalSnapshot: window,
+            workspaceIDs: [workspaceManager.activeWorkspaceID]
+        )
+        workspaceManager.addToWorkspace(member, workspaceID: workspaceManager.activeWorkspaceID)
+        actionStatus = "Managing (window.applicationName) on (workspaceName(workspaceManager.activeWorkspaceID))."
     }
 
     func workspaceMembership(for window: WindowSnapshot) -> Set<WorkspaceID> {
@@ -142,6 +223,27 @@ final class DiagnosticsViewModel: ObservableObject {
         }
     }
 
+    func stopManagingWindow(_ window: WindowSnapshot) {
+        guard let member = workspaceManager.member(for: window.runtimeIdentity) else {
+            actionStatus = "This window is already unmanaged."
+            return
+        }
+        if member.isParked {
+            guard accessibilityGranted else {
+                workspaceSwitchState = .degraded(message: "Accessibility permission is unavailable.")
+                actionStatus = "Cannot recover the parked window until Accessibility permission is restored."
+                return
+            }
+            let result = externalWindowController.recover(member.authorizedWindow, requested: member.logicalSnapshot, displays: displays)
+            guard result.status == .restoredExactly || result.status == .restoredWithAdjustment || result.status == .windowMissing else {
+                actionStatus = "Stop Managing was not completed: (result.message)"
+                return
+            }
+        }
+        workspaceManager.remove(window.runtimeIdentity)
+        actionStatus = "Stopped managing (window.applicationName); the application and window remain open."
+    }
+
     func setWindowVisibleOnAllWorkspaces(_ window: WindowSnapshot, visible: Bool) {
         guard isExplicitlyAuthorizedForWorkspace(window),
               case let .success(authorized) = WindowAuthorization.authorize(window, policy: managementPolicy) else {
@@ -155,26 +257,67 @@ final class DiagnosticsViewModel: ObservableObject {
     }
 
     func enterExperimentalWorkspaceMode() {
-        guard !workspaceManager.allMembers.isEmpty else {
-            actionStatus = "Assign at least one explicitly authorized window before entering Experimental Workspace Mode."
+        guard accessibilityGranted else {
+            actionStatus = "Accessibility permission is required before enabling desktop switching."
             return
         }
-        let inactive = workspaceManager.workspace(for: workspaceManager.workspaceIDs.dropFirst().first ?? .workspace2)
-        let execution = workspaceEngine.parkInactiveWorkspace(inactive, displays: displays)
-        workspaceManager.replaceWorkspace(execution.targetWorkspace)
+        let activeID = workspaceManager.activeWorkspaceID
+        let activeIDs = Set(workspaceManager.workspace(for: activeID).members.map(\.id))
+        var results: [WorkspaceWindowResult] = []
+        var captureMS = 0.0
+        var parkingMS = 0.0
+        var processed = 0
+        for id in workspaceManager.workspaceIDs where id != activeID {
+            let execution = workspaceEngine.parkInactiveWorkspace(
+                workspaceManager.workspace(for: id),
+                displays: displays,
+                excludingVisibleIDs: activeIDs
+            )
+            workspaceManager.replaceWorkspace(execution.targetWorkspace)
+            results.append(contentsOf: execution.result.results)
+            captureMS += execution.result.metrics.captureMilliseconds
+            parkingMS += execution.result.metrics.parkingMilliseconds
+            processed += execution.result.metrics.windowsProcessed
+        }
         experimentalWorkspaceModeEnabled = true
-        _ = workspaceManager.activate(.workspace1)
-        workspaceSwitchResult = execution.result
-        actionStatus = "Experimental Workspace Mode enabled. Only explicitly assigned windows are controlled."
+        switchQueue.reset()
+        workspaceSwitchState = .idle
+        workspaceSwitchResult = WorkspaceSwitchResult(
+            sourceWorkspaceID: nil,
+            targetWorkspaceID: activeID,
+            results: results,
+            metrics: WorkspaceSwitchMetrics(captureMilliseconds: captureMS, parkingMilliseconds: parkingMS, restoreMilliseconds: 0, totalMilliseconds: captureMS + parkingMS, windowsProcessed: processed)
+        )
+        actionStatus = "Desktop switching enabled. Only explicitly managed windows are controlled."
     }
 
     func switchWorkspace(to targetID: WorkspaceID) {
         guard experimentalWorkspaceModeEnabled else {
-            actionStatus = "Enter Experimental Workspace Mode before switching workspaces."
+            actionStatus = "Enable desktop switching before switching desktops."
+            return
+        }
+        guard accessibilityGranted else {
+            workspaceSwitchState = .degraded(message: "Accessibility permission is unavailable.")
+            actionStatus = "Accessibility permission is unavailable; switching is paused."
+            return
+        }
+        guard !workspaceTopologyChanged else {
+            actionStatus = "Switching is paused because display topology changed. Recover managed windows first."
             return
         }
         let sourceID = workspaceManager.activeWorkspaceID
-        guard sourceID != targetID else { return }
+        guard sourceID != targetID, workspaceManager.workspaceIDs.contains(targetID) else { return }
+        guard let immediate = switchQueue.request(targetID) else {
+            actionStatus = "Switch already running; keeping only the latest requested desktop."
+            workspaceSwitchState = switchQueue.state
+            return
+        }
+        performSwitch(to: immediate)
+    }
+
+    private func performSwitch(to targetID: WorkspaceID) {
+        workspaceSwitchState = .switching(target: targetID)
+        let sourceID = workspaceManager.activeWorkspaceID
         let execution = workspaceEngine.switchWorkspace(
             from: workspaceManager.workspace(for: sourceID),
             to: workspaceManager.workspace(for: targetID),
@@ -187,50 +330,78 @@ final class DiagnosticsViewModel: ObservableObject {
         actionStatus = execution.result.isDegraded
             ? "Switched to \(workspaceName(targetID)) with recoverable partial results; inspect the report below."
             : "Switched to \(workspaceName(targetID))."
+        let pending = switchQueue.finish(degradedMessage: execution.result.isDegraded ? "The last switch completed with partial results." : nil)
+        workspaceSwitchState = switchQueue.state
+        if let pending { performSwitch(to: pending) }
     }
 
     func addWorkspace() {
         let id = workspaceManager.addWorkspace()
+        persistWorkspaceConfiguration()
         actionStatus = "Created \(workspaceName(id))."
     }
 
     func activateWorkspace(_ id: WorkspaceID) {
         guard workspaceManager.workspaceIDs.contains(id) else {
-            actionStatus = "That workspace no longer exists."
+            actionStatus = "That desktop no longer exists."
             return
         }
-        if experimentalWorkspaceModeEnabled {
-            switchWorkspace(to: id)
-        } else {
+        if experimentalWorkspaceModeEnabled { switchWorkspace(to: id) }
+        else {
             _ = workspaceManager.activate(id)
-            actionStatus = "Activated \(workspaceName(id)) in the logical workspace model."
+            persistWorkspaceConfiguration()
+            actionStatus = "Activated \(workspaceName(id)) in the logical desktop model."
         }
+    }
+
+    func activateNextWorkspace() {
+        guard let id = workspaceManager.nextWorkspaceID() else { return }
+        activateWorkspace(id)
+    }
+
+    func activatePreviousWorkspace() {
+        guard let id = workspaceManager.previousWorkspaceID() else { return }
+        activateWorkspace(id)
     }
 
     func renameWorkspace(_ id: WorkspaceID, name: String) {
-        actionStatus = workspaceManager.renameWorkspace(id, name: name)
-            ? "Renamed workspace."
-            : "Workspace name cannot be empty."
+        let renamed = workspaceManager.renameWorkspace(id, name: name)
+        if renamed { persistWorkspaceConfiguration() }
+        actionStatus = renamed ? "Renamed desktop." : "Desktop name cannot be empty."
     }
 
-    func deleteWorkspace(_ id: WorkspaceID) {
-        guard let destination = workspaceManager.workspaceIDs.first(where: { $0 != id }) else { return }
-        actionStatus = workspaceManager.deleteWorkspace(id, moveExclusiveMembersTo: destination)
-            ? "Deleted the logical workspace; windows were not closed or destroyed."
-            : "Workspace deletion requires an explicit destination for exclusive members."
+    func reorderWorkspace(_ id: WorkspaceID, by offset: Int) {
+        if workspaceManager.moveWorkspace(id, by: offset) {
+            persistWorkspaceConfiguration()
+            actionStatus = "Desktop order updated."
+        }
+    }
+
+    func deleteWorkspace(_ id: WorkspaceID, destination: WorkspaceID?) {
+        let deleted = workspaceManager.deleteWorkspace(id, moveExclusiveMembersTo: destination)
+        if deleted { persistWorkspaceConfiguration() }
+        actionStatus = deleted
+            ? "Deleted the logical desktop; windows were not closed or destroyed."
+            : "Choose an explicit replacement desktop for exclusive members or the active desktop."
     }
 
     func recoverManagedWindows() {
+        guard accessibilityGranted else {
+            workspaceSwitchState = .degraded(message: "Accessibility permission is unavailable.")
+            actionStatus = "Recovery is paused until Accessibility permission is restored."
+            return
+        }
         let members = workspaceManager.allMembers
         guard !members.isEmpty else {
             actionStatus = "No managed windows require recovery."
             return
         }
+        workspaceSwitchState = .recovering
         let results = members.map { member -> WorkspaceWindowResult in
             let workspaceID = member.workspaceIDs.contains(workspaceManager.activeWorkspaceID)
                 ? workspaceManager.activeWorkspaceID
                 : (member.workspaceIDs.sorted { $0.rawValue < $1.rawValue }.first ?? workspaceManager.activeWorkspaceID)
-            let restore = externalWindowController.restore(member.authorizedWindow, requested: member.logicalSnapshot)
+            let restore = externalWindowController.recover(member.authorizedWindow, requested: member.logicalSnapshot, displays: displays)
             if restore.status == .restoredExactly || restore.status == .restoredWithAdjustment {
                 var updated = member
                 updated.isParked = false
@@ -241,6 +412,8 @@ final class DiagnosticsViewModel: ObservableObject {
         }
         let metrics = WorkspaceSwitchMetrics(captureMilliseconds: 0, parkingMilliseconds: 0, restoreMilliseconds: 0, totalMilliseconds: 0, windowsProcessed: results.count)
         workspaceSwitchResult = WorkspaceSwitchResult(sourceWorkspaceID: nil, targetWorkspaceID: workspaceManager.activeWorkspaceID, results: results, metrics: metrics)
+        workspaceTopologyChanged = results.contains { $0.outcome == .missing || $0.outcome == .failed || $0.outcome == .unsupported }
+        workspaceSwitchState = workspaceTopologyChanged ? .degraded(message: "Recovery completed with partial results.") : .idle
         actionStatus = "Recovery completed: \(workspaceSwitchResult?.restoredCount ?? 0) exact, \(workspaceSwitchResult?.adjustedCount ?? 0) adjusted, \(workspaceSwitchResult?.failedCount ?? 0) failed."
         refresh()
     }
@@ -249,7 +422,53 @@ final class DiagnosticsViewModel: ObservableObject {
         guard experimentalWorkspaceModeEnabled else { return }
         recoverManagedWindows()
         experimentalWorkspaceModeEnabled = false
-        actionStatus = "Experimental Workspace Mode exited after explicit recovery."
+        actionStatus = "Desktop switching exited after explicit recovery."
+    }
+
+    func startGlobalShortcuts() {
+        guard accessibilityGranted else {
+            shortcutManager.stop()
+            globalShortcutsEnabled = false
+            return
+        }
+        shortcutManager.start(configuration: shortcutConfiguration) { [weak self] action in
+            Task { @MainActor in self?.handleShortcut(action) }
+        }
+        globalShortcutsEnabled = shortcutManager.isRunning
+    }
+
+    func setGlobalShortcutsEnabled(_ enabled: Bool) {
+        shortcutConfiguration.enabled = enabled
+        shortcutConfigurationStore.save(shortcutConfiguration)
+        if enabled { startGlobalShortcuts() } else { shortcutManager.stop(); globalShortcutsEnabled = false }
+    }
+
+    private func handleShortcut(_ action: GlobalShortcutAction) {
+        guard accessibilityGranted else { return }
+        switch action {
+        case let .desktop(index):
+            guard workspaceManager.workspaceOrder.indices.contains(index) else { return }
+            activateWorkspace(workspaceManager.workspaceOrder[index])
+        case .next: activateNextWorkspace()
+        case .previous: activatePreviousWorkspace()
+        }
+    }
+
+    private func handleDisplayTopologyChange() {
+        workspaceTopologyChanged = true
+        workspaceSwitchState = .degraded(message: "Display topology changed.")
+        refresh()
+    }
+
+    private func persistWorkspaceConfiguration() {
+        workspaceConfigurationStore.save(workspaceManager.configuration)
+    }
+
+    private func recoverForTermination() {
+        guard accessibilityGranted else { return }
+        for member in workspaceManager.allMembers where member.isParked {
+            _ = externalWindowController.recover(member.authorizedWindow, requested: member.logicalSnapshot, displays: displays)
+        }
     }
 
     func captureSelectedWindow() {

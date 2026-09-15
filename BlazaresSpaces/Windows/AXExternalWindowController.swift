@@ -99,6 +99,29 @@ struct AXExternalWindowController {
         )
     }
 
+    /// Recovery-only restore that avoids blindly writing a frame on a display
+    /// which is no longer connected. Normal workspace switching remains strict.
+    func recover(
+        _ target: AuthorizedExternalWindow,
+        requested snapshot: WindowSnapshot,
+        displays: [DisplaySnapshot]
+    ) -> WindowRestoreResult {
+        let safeSnapshot = snapshot.recoveryAdjusted(to: displays)
+        var result = restore(target, requested: safeSnapshot)
+        if safeSnapshot.frame != snapshot.frame {
+            result = WindowRestoreResult(
+                id: result.id,
+                applicationName: result.applicationName,
+                processIdentifier: result.processIdentifier,
+                requestedFrame: snapshot.frame,
+                actualFrame: result.actualFrame,
+                status: result.status,
+                message: "Original display topology is unavailable; recovery used the main visible display. \(result.message)"
+            )
+        }
+        return result
+    }
+
     func park(
         _ target: AuthorizedExternalWindow,
         current snapshot: WindowSnapshot,
@@ -246,6 +269,38 @@ struct AXExternalWindowController {
         guard AXValueGetType(value) == .cgSize else { return nil }
         var size = CGSize.zero
         return AXValueGetValue(value, .cgSize, &size) ? size : nil
+    }
+}
+
+extension WindowSnapshot {
+    func recoveryAdjusted(to displays: [DisplaySnapshot]) -> WindowSnapshot {
+        guard let display = displays.first(where: { $0.frame.intersects(frame) })
+                ?? displays.first(where: { $0.isMain })
+                ?? displays.first else { return self }
+        guard display.frame.intersects(frame) else {
+            let visible = display.visibleFrame
+            let width = min(frame.width, visible.width)
+            let height = min(frame.height, visible.height)
+            let adjusted = CGRect(
+                x: visible.minX + max(0, (visible.width - width) / 2),
+                y: visible.minY + max(0, (visible.height - height) / 2),
+                width: width,
+                height: height
+            )
+            return WindowSnapshot(
+                runtimeIdentity: runtimeIdentity,
+                applicationName: applicationName,
+                bundleIdentifier: bundleIdentifier,
+                title: title,
+                role: role,
+                subrole: subrole,
+                frame: adjusted,
+                isMinimized: isMinimized,
+                isFullscreen: isFullscreen,
+                displayID: display.id
+            )
+        }
+        return self
     }
 }
 

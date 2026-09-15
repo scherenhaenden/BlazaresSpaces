@@ -66,6 +66,24 @@ struct WorkspaceManager: Equatable, Sendable {
     var activeWorkspace: LogicalWorkspace { workspace(for: activeWorkspaceID) }
     var workspaceIDs: [WorkspaceID] { workspaceOrder.filter { workspaces[$0] != nil } }
 
+    struct Configuration: Codable, Equatable, Sendable {
+        struct Entry: Codable, Equatable, Sendable {
+            let id: String
+            let name: String
+        }
+
+        let workspaces: [Entry]
+        let activeWorkspaceID: String
+
+        init(manager: WorkspaceManager) {
+            workspaces = manager.workspaceOrder.compactMap { id in
+                guard let workspace = manager.workspaces[id] else { return nil }
+                return Entry(id: id.rawValue, name: workspace.name)
+            }
+            activeWorkspaceID = manager.activeWorkspaceID.rawValue
+        }
+    }
+
     func workspace(for id: WorkspaceID) -> LogicalWorkspace {
         guard var workspace = workspaces[id] else {
             return LogicalWorkspace(id: id, name: id.rawValue)
@@ -112,11 +130,63 @@ struct WorkspaceManager: Equatable, Sendable {
         return true
     }
 
+    mutating func reorderWorkspaces(_ orderedIDs: [WorkspaceID]) -> Bool {
+        guard Set(orderedIDs) == Set(workspaceIDs), orderedIDs.count == workspaceIDs.count else { return false }
+        workspaceOrder = orderedIDs
+        return true
+    }
+
+    mutating func moveWorkspace(_ id: WorkspaceID, by offset: Int) -> Bool {
+        guard let index = workspaceOrder.firstIndex(of: id) else { return false }
+        let target = index + offset
+        guard workspaceOrder.indices.contains(target) else { return false }
+        workspaceOrder.swapAt(index, target)
+        return true
+    }
+
+    func nextWorkspaceID(after id: WorkspaceID? = nil, wraps: Bool = true) -> WorkspaceID? {
+        guard !workspaceOrder.isEmpty else { return nil }
+        let current = id ?? activeWorkspaceID
+        guard let index = workspaceOrder.firstIndex(of: current) else { return workspaceOrder.first }
+        let next = index + 1
+        if next < workspaceOrder.count { return workspaceOrder[next] }
+        return wraps ? workspaceOrder.first : nil
+    }
+
+    func previousWorkspaceID(before id: WorkspaceID? = nil, wraps: Bool = true) -> WorkspaceID? {
+        guard !workspaceOrder.isEmpty else { return nil }
+        let current = id ?? activeWorkspaceID
+        guard let index = workspaceOrder.firstIndex(of: current) else { return workspaceOrder.first }
+        let previous = index - 1
+        if previous >= 0 { return workspaceOrder[previous] }
+        return wraps ? workspaceOrder.last : nil
+    }
+
+    mutating func apply(configuration: Configuration) {
+        var configured: [WorkspaceID: LogicalWorkspace] = [:]
+        var order: [WorkspaceID] = []
+        for item in configuration.workspaces {
+            let id = WorkspaceID(item.id)
+            let existingMembers = workspaces[id]?.members ?? []
+            configured[id] = LogicalWorkspace(id: id, name: item.name, members: existingMembers)
+            order.append(id)
+        }
+        if order.isEmpty { return }
+        workspaces = configured
+        workspaceOrder = order
+        activeWorkspaceID = order.contains(WorkspaceID(configuration.activeWorkspaceID))
+            ? WorkspaceID(configuration.activeWorkspaceID)
+            : order[0]
+    }
+
+    var configuration: Configuration { Configuration(manager: self) }
+
     /// Deletes only the logical container. When members would otherwise lose all
     /// membership, a destination must be supplied explicitly; windows are never
     /// closed or destroyed by this operation.
     mutating func deleteWorkspace(_ id: WorkspaceID, moveExclusiveMembersTo destination: WorkspaceID? = nil) -> Bool {
         guard workspaces[id] != nil, workspaceOrder.count > 1 else { return false }
+        guard id != activeWorkspaceID || destination != nil else { return false }
         let affected = allMembers.filter { !$0.visibleOnAllWorkspaces && $0.workspaceIDs == [id] }
         if !affected.isEmpty {
             guard let destination, destination != id, workspaces[destination] != nil else { return false }
@@ -177,8 +247,11 @@ struct WorkspaceManager: Equatable, Sendable {
         workspaces[workspace.id] = stored
     }
 
-    mutating func remove(_ identity: WindowRuntimeIdentity) {
+    @discardableResult
+    mutating func remove(_ identity: WindowRuntimeIdentity) -> WorkspaceMember? {
+        let removed = member(for: identity)
         for id in workspaceOrder { workspaces[id]?.members.removeAll { $0.id == identity } }
+        return removed
     }
 
     var allMembers: [WorkspaceMember] {

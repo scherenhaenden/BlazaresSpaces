@@ -20,7 +20,8 @@ struct WorkspaceSwitchEngine {
 
     func parkInactiveWorkspace(
         _ workspace: LogicalWorkspace,
-        displays: [DisplaySnapshot]
+        displays: [DisplaySnapshot],
+        excludingVisibleIDs: Set<WindowRuntimeIdentity> = []
     ) -> WorkspaceSwitchExecution {
         let start = Date()
         var updated = workspace
@@ -28,7 +29,10 @@ struct WorkspaceSwitchEngine {
         var captureDuration = 0.0
         var parkingDuration = 0.0
 
-        for (index, member) in workspace.members.enumerated() where !member.isParked && !member.visibleOnAllWorkspaces {
+        let candidates = workspace.members.filter {
+            !$0.isParked && !$0.visibleOnAllWorkspaces && !excludingVisibleIDs.contains($0.id)
+        }
+        for (index, member) in candidates.enumerated() {
             let captureStart = Date()
             let current: WindowSnapshot?
             switch controller.capture(member.authorizedWindow, displays: displays) {
@@ -91,7 +95,7 @@ struct WorkspaceSwitchEngine {
             parkingMilliseconds: parkingDuration * 1_000,
             restoreMilliseconds: 0,
             totalMilliseconds: total * 1_000,
-            windowsProcessed: workspace.members.count
+            windowsProcessed: candidates.count
         )
         return WorkspaceSwitchExecution(
             sourceWorkspace: nil,
