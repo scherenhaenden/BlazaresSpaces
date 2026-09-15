@@ -31,7 +31,9 @@ struct NativeSpacesController: NativeSpacesControlling {
         let token = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: NSWorkspace.shared,
-            queue: .main
+            // Never enqueue this observer on MainActor: activate() waits for
+            // the signal synchronously and would otherwise deadlock the UI.
+            queue: nil
         ) { _ in semaphore.signal() }
         defer { NSWorkspace.shared.notificationCenter.removeObserver(token) }
         guard postControlArrow(delta > 0 ? 124 : 123, count: abs(delta)) else {
