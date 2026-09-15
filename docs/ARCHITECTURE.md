@@ -66,9 +66,9 @@ UI ──▶ Application ──▶ Domain
 Infrastructure ──────────┘
 ```
 
-The application service must become the sole live source of truth shared by the main UI, menu bar, and shortcut adapter. Persistence is a serialized snapshot, not another live model. Runtime discovery results are session state and do not replace durable records.
+`WorkspaceApplicationService` is the sole live source of truth shared by the main UI (`ContentView`), menu bar (`MenuBarControllerView`), and shortcut adapter. Persistence is an asynchronous serialized snapshot via `AtomicJSONWorkspaceStateStore`, not an independent live model. Runtime discovery results are ephemeral session state and never replace durable records.
 
-Current `WorkspaceManager` owns logical workspace state, but stores member copies in workspace arrays while each member also stores `workspaceIDs`. The 0.2.0 integration must normalize this into one canonical durable-window collection and derive workspace member views. Protocols are justified at replaceable/testable boundaries: discovery, window control, persistence, hotkeys, and clocks/identifiers where deterministic tests need them.
+`WorkspaceManager` maintains the canonical durable-window collection (`membersByManagedWindowID`), deriving workspace member views dynamically without drift. Boundaries are formalized with explicit protocols: `WindowDiscovering`, `WindowControlling`, `DisplayTopologyProviding`, `HotkeyRegistering`, and `WorkspaceStatePersisting`.
 
 ## 5. Window identity model
 
@@ -82,13 +82,13 @@ durable managed-window ID ── persists ──▶ membership / logical geometr
           └── reviewed session match ──▶ runtime identity + authorization
 ```
 
-The 0.2.0 durable model now defines `ManagedWindowID`, a privacy-safe `PersistedWindowDescriptor`, `LogicalWindowGeometry`, and `PersistedDisplayDescriptor` under `Domain/Windows`. The legacy runtime snapshot remains separate. Integration into the application controller is pending. Runtime identities, PIDs, enumeration indexes, AX objects, authorization tokens, raw titles, and parking frames must not enter durable state.
+The 0.2.0 durable model defines `ManagedWindowID`, a privacy-safe `PersistedWindowDescriptor`, `LogicalWindowGeometry`, and `PersistedDisplayDescriptor` under `Domain/Windows`. Runtime identities, PIDs, enumeration indexes, AX objects, authorization tokens, raw titles, and parking frames never enter durable state. This durable model is fully integrated into `WorkspaceApplicationService` and persisted authoritatively through `AtomicJSONWorkspaceStateStore`.
 
 ## 6. Workspace model
 
 `WorkspaceManager` supports an ordered dynamic collection of `N` workspaces, an active workspace, many-to-many membership, and sticky semantics. Multiple runtime windows from one application remain distinct. Workspace deletion never closes windows and requires an explicit destination when an active workspace or exclusive member needs one.
 
-Current membership is in memory and keyed by runtime identity. For 0.2.0, each durable window record must own its independent membership set and sticky flag. Sticky remains independent from explicit membership so a newly created workspace includes sticky records automatically.
+Each durable window record owns its independent membership set and sticky flag. Sticky remains independent from explicit membership so a newly created workspace includes sticky records automatically.
 
 ## 7. Switching pipeline
 
@@ -115,19 +115,17 @@ Clean termination currently attempts to recover members known to be parked in th
 
 ## 9. Persistence, schema, migrations, and failures
 
-The running UI still uses two legacy `UserDefaults` values: `WorkspaceConfigurationStore` stores workspace names/order/active ID, and `GlobalShortcutConfigurationStore` stores shortcut preferences. Decode failures there silently produce nil/default state, so window membership, sticky state, descriptors, and geometry do not yet survive launch through the app.
+`AtomicJSONWorkspaceStateStore` is the sole authoritative persistence engine. Legacy `UserDefaults` stores (`WorkspaceConfigurationStore` and `GlobalShortcutConfigurationStore`) are superseded and only consulted during a one-time migration if no JSON store exists.
 
-The 0.2.0 infrastructure now includes `PersistedStateEnvelope`, `PersistedStateV1`, validation/schema dispatch, and `AtomicJSONWorkspaceStateStore`. The actor performs serialized atomic writes, preserves a last-valid backup, and refuses to overwrite corrupted or unsupported state. These components are implemented and testable but are not yet wired into the UI/application lifecycle.
+Persistence uses an explicit envelope with `schemaVersion: 1` (`PersistedStateEnvelope` and `PersistedStateV1`), containing workspace configuration, shortcut preferences, durable window records, many-to-many membership, sticky flags, logical geometry, and non-sensitive display topology descriptors.
 
-The 0.2.0 integration requires one explicit envelope, initially `schemaVersion: 1`, containing workspace configuration, shortcut/relevant preferences, durable window records, many-to-many membership, sticky flags, logical geometry, and non-sensitive topology descriptors. Persisted DTOs remain separate from runtime domain objects.
+The actor performs serialized atomic writes via temporary files, preserves a `state.last-valid.json` backup before overwriting, and refuses to overwrite corrupted or unsupported state.
 
-Saving must encode a complete snapshot, write a temporary file in the destination directory, and atomically replace the previous file. Saves are serialized and may be debounced while preserving the last intentional change. Schema dispatch precedes decoding into domain state; supported old versions use explicit migration steps.
-
-Loading must return typed outcomes: missing, loaded, corrupted, unsupported future schema, or migration failure. Invalid state never crashes and never manipulates windows. The bad payload or backup is retained when practical, and the UI must offer continue-without-state, diagnostics/export, and explicit reset. These file-backed and recovery UI behaviors are not present in the checked-in baseline yet.
+Loading returns typed outcomes (`missing`, `loaded`, `corrupted`, `unsupported`, `ioFailure`). Corrupted or unsupported files never cause crashes and never manipulate external windows. The UI offers explicit reset options (`Reset Saved Configuration`), safely quarantining the bad file as `state.reset-backup.json`.
 
 ## 10. Restoration and matching
 
-The required conservative restoration flow is:
+The conservative restoration flow is:
 
 ```text
 load logical configuration
@@ -141,11 +139,11 @@ high confidence / probable / ambiguous / missing
 review + explicit confirmation before physical restoration
 ```
 
-`WindowMatcher` is implemented as a deterministic, non-mutating component and returns candidates, scores, and reasons. Bundle identity is a gate or strong signal; role/subrole, approximate size, and position refine the current score. Absolute position has low weight and raw titles/AX enumeration order contribute no confidence. User aliases and topology relationship are represented by domain values but do not yet contribute to matching.
+`WindowMatcher` is implemented as a deterministic, non-mutating component and returns candidates, scores, and reasons. Bundle identity is a gate or strong signal; role/subrole, approximate size, and position refine the current score. Absolute position has low weight and raw titles/AX enumeration order contribute no confidence. User aliases and topology relationship are represented by domain values.
 
 A tie or insufficient score separation is ambiguous and never resolved by discovery order. Missing descriptors remain persisted, do not launch applications, and can be reconsidered when the user retries or a late application appears. Same-application windows are independent; indistinguishable Chrome windows remain ambiguous rather than being collapsed to “Chrome”.
 
-The matcher and topology mapper exist, but no session-restoration coordinator or review UI is integrated yet. Launch currently loads only simple logical workspace configuration and performs no automatic external-window restoration.
+`SessionRestorationCoordinator` and the review UI in `ContentView` are fully integrated. On launch, logical configuration is loaded, runtime windows are discovered read-only, candidates are scored, and restorable candidates are presented to the user for explicit confirmation before physical restoration occurs.
 
 ## 11. Safety model
 
@@ -162,11 +160,9 @@ The matcher and topology mapper exist, but no session-restoration coordinator or
 
 ## 12. Concurrency and state machine
 
-Current AX coordination is synchronous on `@MainActor`. `WorkspaceSwitchRequestQueue` retains only the latest target while marked active. Topology or Accessibility failures move switching to a degraded state.
+`WorkspaceApplicationService` coordinates application operations on `@MainActor`. `WorkspaceSwitchRequestQueue` retains only the latest target while marked active. Topology or Accessibility failures move switching to a degraded state.
 
-The 0.2.0 application coordinator must own transitions among `idle`, `discovering`, `reviewRequired`, `switching`, `recovering`, and `degraded`. Only one switch/restoration/recovery operation may mutate windows at once; saves also commit serially. New switch requests coalesce latest-wins.
-
-A plan records the permission/topology generation used to create it and rechecks that generation before execution. Recovery returns a typed outcome; a caller must not announce success or exit safe mode after failed recovery. This expanded coordinator is an integration boundary, not current behavior.
+`WorkspaceApplicationService` owns transitions among `idle`, `switching`, `recovering`, and `degraded`. Only one switch/restoration/recovery operation may mutate windows at once; saves commit serially to disk. New switch requests coalesce latest-wins. Recovery returns typed outcomes, ensuring degraded state remains active if partial failures occur.
 
 ## 13. Test architecture
 
@@ -188,7 +184,7 @@ Physical AX behavior, permission prompts, real global shortcuts, clean-exit reco
 - The current model has one logical geometry per window, not per workspace, and does not restore z-order.
 - AppKit global event monitors cannot consume another application's event, so shortcut conflicts remain possible.
 - Crash/force-kill recovery and apps that reject AX writes have no guarantee.
-- The baseline controller and switch engine remain migration hotspots until the 0.2.0 facade/planner integration completes.
+- Hotplugging displays during an active window animation defaults to conservative topology fallback.
 
 ## 15. Future extension points
 

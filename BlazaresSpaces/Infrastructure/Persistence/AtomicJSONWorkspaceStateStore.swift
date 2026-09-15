@@ -15,9 +15,14 @@ enum WorkspaceStateSaveResult: Equatable, Sendable {
     case ioFailure(description: String)
 }
 
+struct WorkspacePersistenceError: Error, Equatable, Sendable {
+    let message: String
+}
+
 protocol WorkspaceStatePersisting: Sendable {
     func load() async -> WorkspaceStateLoadResult
     func save(_ state: PersistedStateV1) async -> WorkspaceStateSaveResult
+    func reset() async -> Result<Void, WorkspacePersistenceError>
 }
 
 /// Serialized, version-aware JSON persistence. A malformed or unsupported file
@@ -32,18 +37,14 @@ actor AtomicJSONWorkspaceStateStore: WorkspaceStatePersisting {
     private let validator: PersistedStateValidator
 
     init(
-        fileURL: URL = AtomicJSONWorkspaceStateStore.defaultFileURL(),
-        fileManager: FileManager = .default,
-        encoder: JSONEncoder = JSONEncoder(),
-        migrator: PersistedStateMigrator = PersistedStateMigrator(),
-        validator: PersistedStateValidator = PersistedStateValidator()
+        fileURL: URL = AtomicJSONWorkspaceStateStore.defaultFileURL()
     ) {
         self.fileURL = fileURL
         self.lastValidBackupURL = fileURL.deletingLastPathComponent().appendingPathComponent("state.last-valid.json")
-        self.fileManager = fileManager
-        self.encoder = encoder
-        self.migrator = migrator
-        self.validator = validator
+        self.fileManager = .default
+        self.encoder = JSONEncoder()
+        self.migrator = PersistedStateMigrator()
+        self.validator = PersistedStateValidator()
     }
 
     func load() async -> WorkspaceStateLoadResult {
@@ -94,7 +95,7 @@ actor AtomicJSONWorkspaceStateStore: WorkspaceStatePersisting {
 
     /// Explicit user action: remove the active state while retaining the last
     /// valid/corrupt file for diagnosis whenever possible.
-    func reset() async -> Result<Void, String> {
+    func reset() async -> Result<Void, WorkspacePersistenceError> {
         do {
             guard fileManager.fileExists(atPath: fileURL.path) else { return .success(()) }
             let quarantine = fileURL.deletingLastPathComponent().appendingPathComponent("state.reset-backup.json")
@@ -102,7 +103,7 @@ actor AtomicJSONWorkspaceStateStore: WorkspaceStatePersisting {
             try fileManager.moveItem(at: fileURL, to: quarantine)
             return .success(())
         } catch {
-            return .failure(error.localizedDescription)
+            return .failure(WorkspacePersistenceError(message: error.localizedDescription))
         }
     }
 

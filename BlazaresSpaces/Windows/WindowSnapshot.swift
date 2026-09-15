@@ -7,6 +7,24 @@ struct WindowRuntimeIdentity: Hashable, Sendable {
     let processIdentifier: pid_t
     let accessibilityIdentifier: String?
     let enumerationIndex: Int
+
+    init(processIdentifier: pid_t, accessibilityIdentifier: String?, enumerationIndex: Int) {
+        self.processIdentifier = processIdentifier
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.enumerationIndex = enumerationIndex
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(processIdentifier)
+        hasher.combine(accessibilityIdentifier)
+        hasher.combine(enumerationIndex)
+    }
+
+    nonisolated static func == (lhs: WindowRuntimeIdentity, rhs: WindowRuntimeIdentity) -> Bool {
+        lhs.processIdentifier == rhs.processIdentifier
+            && lhs.accessibilityIdentifier == rhs.accessibilityIdentifier
+            && lhs.enumerationIndex == rhs.enumerationIndex
+    }
 }
 
 struct WindowSnapshot: Identifiable, Equatable, Sendable {

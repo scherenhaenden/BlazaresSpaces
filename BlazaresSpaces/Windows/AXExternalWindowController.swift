@@ -313,3 +313,6 @@ private extension WindowRestoreResult {
         self.init(id: base.id, applicationName: base.applicationName, processIdentifier: base.processIdentifier, requestedFrame: base.requestedFrame, actualFrame: actualFrame, status: status, message: message)
     }
 }
+
+extension AXExternalWindowController: WindowControlling {}
+

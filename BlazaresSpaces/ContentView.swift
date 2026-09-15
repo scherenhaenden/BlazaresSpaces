@@ -19,6 +19,7 @@ struct ContentView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
+                    restorationSection
                     if model.externalTestModeEnabled { externalTestModeSection }
                     workspaceSection
                     displaysSection
@@ -124,6 +125,79 @@ struct ContentView: View {
             .padding(8)
         }
         .tint(.orange)
+    }
+
+    private var restorationSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("PERSISTENCE & RESTORATION", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(.blue)
+                    Spacer()
+                    Text(model.persistenceStatus.displayName)
+                        .font(.caption)
+                        .foregroundStyle(model.persistenceStatus.isSafeForExternalMutation ? Color.secondary : Color.red)
+                }
+
+                if case let .corrupted(description) = model.persistenceStatus {
+                    HStack {
+                        Text("Corrupted file detected: \(description)")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        Spacer()
+                        Button("Reset Saved Configuration", role: .destructive) {
+                            model.resetPersistedConfiguration()
+                        }
+                    }
+                } else if case let .unsupported(version) = model.persistenceStatus {
+                    HStack {
+                        Text("Unsupported schema version V\(version). Existing file was preserved without mutation.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        Spacer()
+                        Button("Reset Saved Configuration", role: .destructive) {
+                            model.resetPersistedConfiguration()
+                        }
+                    }
+                }
+
+                if !model.restorationItems.isEmpty {
+                    Text("Restorable window candidates discovered on launch. Conservative policy requires explicit confirmation before external mutation.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(model.restorationItems) { item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.applicationName)
+                                    .font(.subheadline.bold())
+                                Text(item.match.label)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let candidate = item.candidate {
+                                    Text("PID \(candidate.runtimeIdentity.processIdentifier) · Frame: \(candidate.frame.diagnosticDescription)")
+                                        .font(.caption2)
+                                        .fontDesign(.monospaced)
+                                }
+                            }
+                            Spacer()
+                            if item.canConfirm {
+                                Button("Restore Window") {
+                                    model.confirmRestoration(item)
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                        }
+                        .padding(6)
+                        .background(.quaternary.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+        }
+        .tint(.blue)
     }
 
     private var workspaceSection: some View {

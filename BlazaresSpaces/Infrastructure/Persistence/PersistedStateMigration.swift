@@ -47,6 +47,8 @@ struct PersistedStateValidationIssue: Equatable, Sendable {
 }
 
 struct PersistedStateValidator: Sendable {
+    init() {}
+
     func validate(_ state: PersistedStateV1) -> [PersistedStateValidationIssue] {
         var issues: [PersistedStateValidationIssue] = []
         let workspaceIDs = state.workspaces.map(\.id)

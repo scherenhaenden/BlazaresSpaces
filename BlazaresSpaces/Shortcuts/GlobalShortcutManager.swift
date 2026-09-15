@@ -68,6 +68,9 @@ final class GlobalShortcutManager {
     }
 }
 
+extension GlobalShortcutManager: HotkeyRegistering {}
+
+
 struct GlobalShortcutConfigurationStore {
     private let defaults: UserDefaults
     private let key = "BlazaresSpaces.global.shortcuts.v1"

@@ -96,3 +96,5 @@ struct AXWindowDiscovery {
         return AXValueGetValue(value, .cgSize, &size) ? size : nil
     }
 }
+
+extension AXWindowDiscovery: WindowDiscovering {}
