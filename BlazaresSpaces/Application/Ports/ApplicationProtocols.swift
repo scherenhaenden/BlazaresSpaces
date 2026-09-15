@@ -5,6 +5,17 @@ protocol WindowDiscovering: Sendable {
     func discover(displays: [DisplaySnapshot]) -> WindowDiscoveryResult
 }
 
+struct FocusedWindowObservation: Equatable, Sendable {
+    let runtimeIdentity: WindowRuntimeIdentity
+    let snapshot: WindowSnapshot?
+}
+
+protocol FocusedWindowProviding: Sendable {
+    /// Read-only. The observation contains the exact runtime identity: PID + AX
+    /// identifier (when available) + current AX enumeration index.
+    func focusedWindow(displays: [DisplaySnapshot]) -> FocusedWindowObservation?
+}
+
 protocol WindowControlling: Sendable {
     func capture(
         _ target: AuthorizedExternalWindow,

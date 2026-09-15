@@ -12,6 +12,15 @@ import OSLog
 /// here and observe published application state.
 @MainActor
 final class WorkspaceApplicationService: ObservableObject {
+    enum FocusedWindowState: Equatable, Sendable {
+        case none
+        case unmanaged(WindowSnapshot)
+        case managed(WindowSnapshot, memberships: Set<WorkspaceID>, sticky: Bool)
+        case excluded(WindowSnapshot, reason: String)
+        case stale(WindowRuntimeIdentity)
+        case unavailable(String)
+    }
+
     @Published private(set) var accessibilityGranted = false
     @Published private(set) var displays: [DisplaySnapshot] = []
     @Published private(set) var windows: [WindowSnapshot] = []
@@ -29,8 +38,10 @@ final class WorkspaceApplicationService: ObservableObject {
     @Published private(set) var restorationItems: [RestorationReviewItem] = []
     @Published private(set) var actionStatus: String?
     @Published private(set) var restoreReport: WindowRestoreReport?
+    @Published private(set) var focusedWindowState: FocusedWindowState = .none
 
     let windowDiscovery: any WindowDiscovering
+    let focusedWindowProvider: any FocusedWindowProviding
     let windowController: any WindowControlling
     let displayProvider: any DisplayTopologyProviding
     let permissionManager: any AccessibilityChecking
@@ -48,6 +59,7 @@ final class WorkspaceApplicationService: ObservableObject {
     convenience init() {
         self.init(
             windowDiscovery: AXWindowDiscovery(),
+            focusedWindowProvider: AXFocusedWindowProvider(),
             windowController: AXExternalWindowController(),
             displayProvider: DisplayManager(),
             permissionManager: AccessibilityPermissionManager(),
@@ -61,6 +73,7 @@ final class WorkspaceApplicationService: ObservableObject {
 
     init(
         windowDiscovery: any WindowDiscovering,
+        focusedWindowProvider: any FocusedWindowProviding,
         windowController: any WindowControlling,
         displayProvider: any DisplayTopologyProviding,
         permissionManager: any AccessibilityChecking,
@@ -71,6 +84,7 @@ final class WorkspaceApplicationService: ObservableObject {
         restorationCoordinator: SessionRestorationCoordinator
     ) {
         self.windowDiscovery = windowDiscovery
+        self.focusedWindowProvider = focusedWindowProvider
         self.windowController = windowController
         self.displayProvider = displayProvider
         self.permissionManager = permissionManager
@@ -102,10 +116,12 @@ final class WorkspaceApplicationService: ObservableObject {
             let result = windowDiscovery.discover(displays: displays)
             windows = result.windows
             issues = result.issues
+            refreshFocusedWindow()
             evaluateRestoration()
         } else {
             windows = []
             issues = []
+            focusedWindowState = .unavailable("Accessibility permission is unavailable.")
             shortcutManager.stop()
             globalShortcutsEnabled = false
             if experimentalWorkspaceModeEnabled {
@@ -118,6 +134,117 @@ final class WorkspaceApplicationService: ObservableObject {
         }
         lastRefresh = Date()
         hasCompletedInitialRefresh = true
+    }
+
+    // MARK: - Focused Window Quick Actions
+
+    func refreshFocusedWindow() {
+        guard accessibilityGranted else {
+            focusedWindowState = .unavailable("Accessibility permission is unavailable.")
+            return
+        }
+        guard let observation = focusedWindowProvider.focusedWindow(displays: displays),
+              observation.runtimeIdentity.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            if case let .unmanaged(previous) = focusedWindowState { focusedWindowState = .stale(previous.runtimeIdentity) }
+            else if case let .managed(previous, _, _) = focusedWindowState { focusedWindowState = .stale(previous.runtimeIdentity) }
+            else if case let .excluded(previous, _) = focusedWindowState { focusedWindowState = .stale(previous.runtimeIdentity) }
+            else { focusedWindowState = .none }
+            return
+        }
+        guard let focused = observation.snapshot ?? windows.first(where: { $0.runtimeIdentity == observation.runtimeIdentity }) else {
+            focusedWindowState = .stale(observation.runtimeIdentity)
+            return
+        }
+        focusedWindowState = state(for: focused)
+    }
+
+    private func state(for window: WindowSnapshot) -> FocusedWindowState {
+        if let reason = managementPolicy.exclusionReason(for: window) {
+            return .excluded(window, reason: reason)
+        }
+        guard let member = workspaceManager.member(for: window.runtimeIdentity) else {
+            return .unmanaged(window)
+        }
+        return .managed(window, memberships: member.workspaceIDs, sticky: member.visibleOnAllWorkspaces)
+    }
+
+    private func exactFocusedWindowForAction() -> WindowSnapshot? {
+        let state = focusedWindowState
+        let identity: WindowRuntimeIdentity
+        switch state {
+        case let .unmanaged(window), let .managed(window, _, _), let .excluded(window, _): identity = window.runtimeIdentity
+        default: return nil
+        }
+        if let current = focusedWindowProvider.focusedWindow(displays: displays) {
+            guard current.runtimeIdentity == identity else {
+                focusedWindowState = .stale(identity)
+                actionStatus = "The focused window changed; no action was performed."
+                return nil
+            }
+            return current.snapshot ?? windows.first(where: { $0.runtimeIdentity == identity })
+        }
+        guard let discovered = windows.first(where: { $0.runtimeIdentity == identity }) else {
+            focusedWindowState = .stale(identity)
+            actionStatus = "The focused window is stale; no action was performed."
+            return nil
+        }
+        return discovered
+    }
+
+    @discardableResult
+    func manageAndMoveFocusedWindow(to workspaceID: WorkspaceID) -> Bool {
+        manageAndAssignFocusedWindow(to: workspaceID, move: true)
+    }
+
+    @discardableResult
+    func manageAndShowFocusedWindow(on workspaceID: WorkspaceID) -> Bool {
+        manageAndAssignFocusedWindow(to: workspaceID, move: false)
+    }
+
+    @discardableResult
+    private func manageAndAssignFocusedWindow(to workspaceID: WorkspaceID, move: Bool) -> Bool {
+        guard let window = exactFocusedWindowForAction(), workspaceManager.workspaceIDs.contains(workspaceID) else { return false }
+        guard case let .success(authorized) = WindowAuthorization.authorize(window, policy: managementPolicy) else {
+            focusedWindowState = state(for: window)
+            actionStatus = "This focused window is excluded or has no safe runtime identity."
+            return false
+        }
+        let member = workspaceManager.member(for: authorized.runtimeIdentity)
+            ?? WorkspaceMember(authorizedWindow: authorized, logicalSnapshot: window)
+        if move { workspaceManager.moveToWorkspace(member, workspaceID: workspaceID) }
+        else { workspaceManager.addToWorkspace(member, workspaceID: workspaceID) }
+        persistAuthoritativeState()
+        focusedWindowState = state(for: window)
+        actionStatus = move ? "Managed and moved \(window.applicationName)." : "Managed and showed \(window.applicationName)."
+        return true
+    }
+
+    @discardableResult
+    func moveFocusedWindow(to workspaceID: WorkspaceID) -> Bool {
+        guard let window = exactFocusedWindowForAction(), isManaged(window) else { return false }
+        assignWindow(window, to: workspaceID, move: true)
+        focusedWindowState = state(for: window)
+        return true
+    }
+
+    @discardableResult
+    func showFocusedWindow(on workspaceID: WorkspaceID) -> Bool {
+        guard let window = exactFocusedWindowForAction(), isManaged(window) else { return false }
+        assignWindow(window, to: workspaceID, move: false)
+        focusedWindowState = state(for: window)
+        return true
+    }
+
+    @discardableResult
+    func setFocusedWindowSticky(_ visible: Bool) -> Bool {
+        guard let window = exactFocusedWindowForAction(), isManaged(window) else { return false }
+        guard let member = workspaceManager.member(for: window.runtimeIdentity) else { return false }
+        if !visible && member.workspaceIDs.isEmpty {
+            workspaceManager.addToWorkspace(member, workspaceID: workspaceManager.activeWorkspaceID)
+        }
+        setWindowVisibleOnAllWorkspaces(window, visible: visible)
+        focusedWindowState = state(for: window)
+        return true
     }
 
     func handleDisplayTopologyChange() {

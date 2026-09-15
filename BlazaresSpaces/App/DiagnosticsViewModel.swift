@@ -27,6 +27,7 @@ final class DiagnosticsViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var screenParametersObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
+    private var focusedApplicationObserver: NSObjectProtocol?
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BlazaresSpaces", category: "DiagnosticsUI")
 
     init(service: WorkspaceApplicationService? = nil) {
@@ -59,11 +60,22 @@ final class DiagnosticsViewModel: ObservableObject {
                 appService?.recoverForTermination()
             }
         }
+
+        focusedApplicationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak appService] _ in
+            Task { @MainActor [weak appService] in
+                appService?.refreshFocusedWindow()
+            }
+        }
     }
 
     deinit {
         if let screenParametersObserver { NotificationCenter.default.removeObserver(screenParametersObserver) }
         if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
+        if let focusedApplicationObserver { NSWorkspace.shared.notificationCenter.removeObserver(focusedApplicationObserver) }
     }
 
     // MARK: - Forwarded Application State
@@ -87,8 +99,29 @@ final class DiagnosticsViewModel: ObservableObject {
     var restoreReport: WindowRestoreReport? { localRestoreReport ?? service.restoreReport }
     var excludedBundleIdentifierPrefixes: [String] { service.managementPolicy.excludedBundleIdentifierPrefixes }
     var excludedApplicationNames: [String] { service.managementPolicy.excludedApplicationNames }
+    var focusedWindowState: WorkspaceApplicationService.FocusedWindowState { service.focusedWindowState }
     func updateManagementExclusions(applicationNames: [String], bundlePrefixes: [String]) {
         service.updateManagementExclusions(applicationNames: applicationNames, bundlePrefixes: bundlePrefixes)
+    }
+
+    func manageAndMoveFocusedWindow(to workspaceID: WorkspaceID) {
+        _ = service.manageAndMoveFocusedWindow(to: workspaceID)
+    }
+
+    func manageAndShowFocusedWindow(on workspaceID: WorkspaceID) {
+        _ = service.manageAndShowFocusedWindow(on: workspaceID)
+    }
+
+    func moveFocusedWindow(to workspaceID: WorkspaceID) {
+        _ = service.moveFocusedWindow(to: workspaceID)
+    }
+
+    func showFocusedWindow(on workspaceID: WorkspaceID) {
+        _ = service.showFocusedWindow(on: workspaceID)
+    }
+
+    func setFocusedWindowSticky(_ visible: Bool) {
+        _ = service.setFocusedWindowSticky(visible)
     }
 
     var externalTestModeEnabled: Bool {
