@@ -11,6 +11,7 @@ struct ContentView: View {
     @StateObject private var model = DiagnosticsViewModel()
     @Environment(\.openWindow) private var openWindow
     @State private var showWindowTitles = false
+    @State private var workspaceNameDrafts: [String: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -19,6 +20,7 @@ struct ContentView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     if model.externalTestModeEnabled { externalTestModeSection }
+                    workspaceSection
                     displaysSection
                     windowsSection
                     if let snapshot = model.desktopSnapshot { snapshotSection(snapshot) }
@@ -124,6 +126,80 @@ struct ContentView: View {
         .tint(.orange)
     }
 
+    private var workspaceSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("EXPERIMENTAL GLOBAL WORKSPACES", systemImage: "square.3.layers.3d")
+                    .font(.headline)
+                    .foregroundStyle(.orange)
+                Text("Workspaces are logical and span all connected displays. Only windows explicitly selected in External Window Test Mode can be assigned or controlled; discovery remains read-only.")
+                    .foregroundStyle(.secondary)
+                HStack {
+                    if !model.experimentalWorkspaceModeEnabled {
+                        Button("Enter Experimental Workspace Mode") { model.enterExperimentalWorkspaceMode() }
+                    } else {
+                        Button("RECOVER MANAGED WINDOWS") { model.recoverManagedWindows() }
+                        Button("Exit Experimental Mode & Recover Windows") { model.exitExperimentalWorkspaceMode() }
+                    }
+                    Button("Add Workspace") { model.addWorkspace() }
+                }
+
+                ForEach(model.workspaceIDs) { id in
+                    let workspace = model.workspaceManager.workspace(for: id)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            TextField("Workspace name", text: Binding(
+                                get: { workspaceNameDrafts[id.rawValue] ?? workspace.name },
+                                set: { workspaceNameDrafts[id.rawValue] = $0 }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { model.renameWorkspace(id, name: workspaceNameDrafts[id.rawValue] ?? workspace.name) }
+                            if model.workspaceManager.activeWorkspaceID == id {
+                                Label("Active", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                            } else {
+                                Button("Activate") { model.activateWorkspace(id) }
+                            }
+                            if model.workspaceIDs.count > 1 {
+                                Button("Delete", role: .destructive) { model.deleteWorkspace(id) }
+                            }
+                        }
+                        Text("Members: (workspace.members.count)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(workspace.members) { member in
+                            Text("• (member.authorizedWindow.applicationName) · PID (member.authorizedWindow.processIdentifier)\(member.visibleOnAllWorkspaces ? " · all workspaces" : "")")
+                                .font(.caption)
+                                .fontDesign(.monospaced)
+                        }
+                    }
+                    .padding(6)
+                    .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
+                }
+
+                if let result = model.workspaceSwitchResult {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Last workspace operation: " + (result.sourceWorkspaceID?.rawValue ?? "recovery/entry") + " → " + result.targetWorkspaceID.rawValue)
+                            .font(.callout.bold())
+                        Text("Processed \(result.metrics.windowsProcessed) · captured \(result.capturedCount) · parked \(result.parkedCount) · restored \(result.restoredCount) · adjusted \(result.adjustedCount) · missing \(result.missingCount) · failed \(result.failedCount)")
+                            .font(.caption)
+                        Text(String(format: "Timing: total %.1f ms · capture %.1f ms · parking %.1f ms · restore %.1f ms", result.metrics.totalMilliseconds, result.metrics.captureMilliseconds, result.metrics.parkingMilliseconds, result.metrics.restoreMilliseconds))
+                            .font(.caption)
+                            .fontDesign(.monospaced)
+                        ForEach(result.results) { item in
+                            Text(item.applicationName + " · " + item.operation.displayName + " · " + item.outcome.displayName + ": " + item.message)
+                                .font(.caption2)
+                                .foregroundStyle(item.outcome == .failed || item.outcome == .missing ? .red : .secondary)
+                        }
+                    }
+                    .padding(6)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+        }
+        .tint(.orange)
+    }
+
     private var windowsSection: some View {
         GroupBox("Manageable windows: \(model.windows.count)") {
             VStack(alignment: .leading, spacing: 10) {
@@ -162,6 +238,30 @@ struct ContentView: View {
                                     set: { model.setTestSetSelection(window, selected: $0) }
                                 ))
                                 .toggleStyle(.checkbox)
+                            }
+                            if model.isExplicitlyAuthorizedForWorkspace(window) {
+                                HStack {
+                                    Menu("Workspace membership") {
+                                        ForEach(model.workspaceIDs) { workspaceID in
+                                            Button("Move to \(model.workspaceName(workspaceID))") {
+                                                model.assignWindow(window, to: workspaceID, move: true)
+                                            }
+                                            Button("Add to \(model.workspaceName(workspaceID))") {
+                                                model.assignWindow(window, to: workspaceID, move: false)
+                                            }
+                                        }
+                                        Button("Show on all workspaces") {
+                                            model.setWindowVisibleOnAllWorkspaces(window, visible: true)
+                                        }
+                                        Button("Stop showing on all workspaces") {
+                                            model.setWindowVisibleOnAllWorkspaces(window, visible: false)
+                                        }
+                                    }
+                                    let memberships = model.workspaceMembership(for: window)
+                                    Text(memberships.isEmpty ? "Unassigned" : memberships.map { model.workspaceName($0) }.sorted().joined(separator: ", "))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }

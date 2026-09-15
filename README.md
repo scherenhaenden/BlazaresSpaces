@@ -22,7 +22,7 @@ Desktop 2
 
 BlazaresSpaces does not tile windows, create or manipulate native macOS Spaces, use private Mission Control/WindowServer APIs, or require disabling SIP. It is currently a proof of concept using public AppKit, CoreGraphics, and Accessibility APIs.
 
-## Current status — 0.0.1 Window & Display Inspector
+## Current status — 0.0.3 Experimental global workspaces
 
 The app can:
 
@@ -40,6 +40,10 @@ Window titles are hidden by default in the inspector and can be revealed explici
 
 The external test mode is opt-in per window. A discovered window is never mutable by default. The user must explicitly select one eligible window or a temporary test set. Conservative application exclusions are marked **NEVER MANAGE** by the default policy. External restore requires a usable AX runtime identifier, rechecks the exact PID/bundle/identifier, and reports the requested versus resulting frame.
 
+The 0.0.3 experiment adds a controller for logical workspaces spanning all connected displays. Workspaces are dynamic and held in memory only. A selected window can be moved to one workspace, added to several workspaces, or marked **Show on all workspaces**; that sticky semantic also applies to workspaces created later. Shared windows remain visible during a switch, while only source-only windows are temporarily parked outside the union of display frames. Logical frames are kept separately from temporary parking frames.
+
+Workspace switching is deliberately opt-in and reversible: use **Enter Experimental Workspace Mode**, switch from the workspace sidebar, and use **RECOVER MANAGED WINDOWS** or **Exit Experimental Mode & Recover Windows** to restore selected windows. Partial failures, missing windows, unsupported minimized/fullscreen states, adjusted frames, and timing metrics are reported per window. New or unselected windows remain unmanaged. There are no hotkeys, persistence, automatic adoption, or native macOS Spaces integration in this iteration.
+
 ## Running
 
 1. Open `BlazaresSpaces.xcodeproj` in Xcode and run the `BlazaresSpaces` scheme.
@@ -53,7 +57,7 @@ Accessibility permission is tied to the built app's signing identity and locatio
 
 - **0.0.1:** Window and display inspector
 - **0.0.2:** Capture/restore layouts
-- **0.0.3:** Two global logical workspaces
+- **0.0.3:** Dynamic global logical workspaces (initially tested with two)
 - **0.1.0:** Usable workspace-switching MVP
 - **0.2.0:** Persistence and robust display topology handling
 - **0.3.0:** Application/window rules and exclusions

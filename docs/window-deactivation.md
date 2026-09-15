@@ -1,6 +1,6 @@
 # Window deactivation research notes
 
-This document records candidate strategies for a future logical-workspace engine. None of these strategies is implemented in 0.0.2. The current release only observes windows and performs explicit, selected test restores.
+This document records candidate strategies for the logical-workspace engine. In 0.0.3, moving explicitly authorized source-only windows outside the visible union of displays is implemented as an experimental, recoverable parking path. It remains opt-in, in-memory, and subject to the failure modes below.
 
 The future model must be window-based, not application-based. For example, Chrome Window A may belong to WORK while Chrome Window B belongs to DEV; hiding Chrome as an application would incorrectly affect both.
 
@@ -14,7 +14,9 @@ The future model must be window-based, not application-based. For example, Chrom
 
 ## Current conclusion
 
-Moving a selected window outside visible bounds is the leading public-API hypothesis, but it is not validated. It must be tested with normal windows, dialogs, minimized/fullscreen windows, mixed monitor topologies, focus, Mission Control, and applications with multiple windows before any workspace-switching design relies on it.
+Moving an explicitly selected window outside the topology-derived union of display frames is the current public-API experiment. The engine preserves the logical frame separately, verifies the actual parking frame, and reports adjusted, missing, changed, unsupported, permission-denied, and failed outcomes. It must still be tested with normal windows, dialogs, minimized/fullscreen windows, mixed monitor topologies, focus, Mission Control, and applications with multiple windows before this can become a general-purpose switching feature.
+
+The switching rule is membership-aware: a window is parked only when it belongs to the source workspace, does not belong to the target workspace, and is not sticky. Shared windows keep their current geometry while moving between workspaces where they are visible. The first implementation intentionally uses one global geometry for shared windows rather than inventing per-workspace frames.
 
 Minimization is a fallback experiment, not an assumption. Application hiding is unsuitable as the default because workspace membership is per-window. Native Spaces and private APIs remain out of scope.
 
@@ -26,3 +28,4 @@ Minimization is a fallback experiment, not an assumption. Application hiding is 
 4. Test dialogs and child windows.
 5. Test focus, Dock, Mission Control, and monitor reconnect behavior.
 6. Keep excluded and remote-desktop applications out of mutation experiments.
+7. Exercise dynamic workspace creation, rename, deletion with explicit orphan handling, and sticky membership on a newly created workspace.

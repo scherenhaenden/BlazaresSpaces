@@ -16,12 +16,16 @@ final class DiagnosticsViewModel: ObservableObject {
     @Published private(set) var capturedTestSet: WorkspaceSnapshot?
     @Published private(set) var restoreReport: WindowRestoreReport?
     @Published private(set) var actionStatus: String?
+    @Published private(set) var workspaceManager = WorkspaceManager()
+    @Published private(set) var experimentalWorkspaceModeEnabled = false
+    @Published private(set) var workspaceSwitchResult: WorkspaceSwitchResult?
 
     private let permissionManager = AccessibilityPermissionManager()
     private let displayManager = DisplayManager()
     private let windowDiscovery = AXWindowDiscovery()
     private let managementPolicy = WindowManagementPolicy.developmentDefaults
     private let externalWindowController = AXExternalWindowController()
+    private let workspaceEngine = WorkspaceSwitchEngine()
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BlazaresSpaces", category: "Diagnostics")
 
     func refresh() {
@@ -102,6 +106,150 @@ final class DiagnosticsViewModel: ObservableObject {
             restoreReport = nil
             actionStatus = "Test set contains \(selectedTestSetIDs.count) explicitly selected window(s)."
         }
+    }
+
+    var workspaceIDs: [WorkspaceID] { workspaceManager.workspaceIDs }
+
+    func workspaceName(_ id: WorkspaceID) -> String {
+        workspaceManager.workspace(for: id).name
+    }
+
+    func isExplicitlyAuthorizedForWorkspace(_ window: WindowSnapshot) -> Bool {
+        selectedTestWindowID == window.runtimeIdentity || selectedTestSetIDs.contains(window.runtimeIdentity)
+    }
+
+    func workspaceMembership(for window: WindowSnapshot) -> Set<WorkspaceID> {
+        workspaceManager.workspaceContaining(window.runtimeIdentity)
+    }
+
+    func assignWindow(_ window: WindowSnapshot, to workspaceID: WorkspaceID, move: Bool) {
+        guard isExplicitlyAuthorizedForWorkspace(window) else {
+            actionStatus = "Select this window explicitly in External Window Test Mode before assigning it."
+            return
+        }
+        guard case let .success(authorized) = WindowAuthorization.authorize(window, policy: managementPolicy) else {
+            actionStatus = "The window is excluded or no longer has a safe runtime identifier."
+            return
+        }
+        let member = workspaceManager.member(for: authorized.runtimeIdentity)
+            ?? WorkspaceMember(authorizedWindow: authorized, logicalSnapshot: window)
+        if move {
+            workspaceManager.moveToWorkspace(member, workspaceID: workspaceID)
+            actionStatus = "Moved \(window.applicationName) to \(workspaceName(workspaceID))."
+        } else {
+            workspaceManager.addToWorkspace(member, workspaceID: workspaceID)
+            actionStatus = "Added \(window.applicationName) to \(workspaceName(workspaceID)) without removing existing memberships."
+        }
+    }
+
+    func setWindowVisibleOnAllWorkspaces(_ window: WindowSnapshot, visible: Bool) {
+        guard isExplicitlyAuthorizedForWorkspace(window),
+              case let .success(authorized) = WindowAuthorization.authorize(window, policy: managementPolicy) else {
+            actionStatus = "Select an eligible window explicitly before changing workspace visibility."
+            return
+        }
+        let member = workspaceManager.member(for: authorized.runtimeIdentity)
+            ?? WorkspaceMember(authorizedWindow: authorized, logicalSnapshot: window)
+        workspaceManager.setVisibleOnAllWorkspaces(member, visible: visible)
+        actionStatus = visible ? "\(window.applicationName) will remain visible on all current and future workspaces." : "\(window.applicationName) is no longer sticky."
+    }
+
+    func enterExperimentalWorkspaceMode() {
+        guard !workspaceManager.allMembers.isEmpty else {
+            actionStatus = "Assign at least one explicitly authorized window before entering Experimental Workspace Mode."
+            return
+        }
+        let inactive = workspaceManager.workspace(for: workspaceManager.workspaceIDs.dropFirst().first ?? .workspace2)
+        let execution = workspaceEngine.parkInactiveWorkspace(inactive, displays: displays)
+        workspaceManager.replaceWorkspace(execution.targetWorkspace)
+        experimentalWorkspaceModeEnabled = true
+        _ = workspaceManager.activate(.workspace1)
+        workspaceSwitchResult = execution.result
+        actionStatus = "Experimental Workspace Mode enabled. Only explicitly assigned windows are controlled."
+    }
+
+    func switchWorkspace(to targetID: WorkspaceID) {
+        guard experimentalWorkspaceModeEnabled else {
+            actionStatus = "Enter Experimental Workspace Mode before switching workspaces."
+            return
+        }
+        let sourceID = workspaceManager.activeWorkspaceID
+        guard sourceID != targetID else { return }
+        let execution = workspaceEngine.switchWorkspace(
+            from: workspaceManager.workspace(for: sourceID),
+            to: workspaceManager.workspace(for: targetID),
+            displays: displays
+        )
+        if let source = execution.sourceWorkspace { workspaceManager.replaceWorkspace(source) }
+        workspaceManager.replaceWorkspace(execution.targetWorkspace)
+        _ = workspaceManager.activate(targetID)
+        workspaceSwitchResult = execution.result
+        actionStatus = execution.result.isDegraded
+            ? "Switched to \(workspaceName(targetID)) with recoverable partial results; inspect the report below."
+            : "Switched to \(workspaceName(targetID))."
+    }
+
+    func addWorkspace() {
+        let id = workspaceManager.addWorkspace()
+        actionStatus = "Created \(workspaceName(id))."
+    }
+
+    func activateWorkspace(_ id: WorkspaceID) {
+        guard workspaceManager.workspaceIDs.contains(id) else {
+            actionStatus = "That workspace no longer exists."
+            return
+        }
+        if experimentalWorkspaceModeEnabled {
+            switchWorkspace(to: id)
+        } else {
+            _ = workspaceManager.activate(id)
+            actionStatus = "Activated \(workspaceName(id)) in the logical workspace model."
+        }
+    }
+
+    func renameWorkspace(_ id: WorkspaceID, name: String) {
+        actionStatus = workspaceManager.renameWorkspace(id, name: name)
+            ? "Renamed workspace."
+            : "Workspace name cannot be empty."
+    }
+
+    func deleteWorkspace(_ id: WorkspaceID) {
+        guard let destination = workspaceManager.workspaceIDs.first(where: { $0 != id }) else { return }
+        actionStatus = workspaceManager.deleteWorkspace(id, moveExclusiveMembersTo: destination)
+            ? "Deleted the logical workspace; windows were not closed or destroyed."
+            : "Workspace deletion requires an explicit destination for exclusive members."
+    }
+
+    func recoverManagedWindows() {
+        let members = workspaceManager.allMembers
+        guard !members.isEmpty else {
+            actionStatus = "No managed windows require recovery."
+            return
+        }
+        let results = members.map { member -> WorkspaceWindowResult in
+            let workspaceID = member.workspaceIDs.contains(workspaceManager.activeWorkspaceID)
+                ? workspaceManager.activeWorkspaceID
+                : (member.workspaceIDs.sorted { $0.rawValue < $1.rawValue }.first ?? workspaceManager.activeWorkspaceID)
+            let restore = externalWindowController.restore(member.authorizedWindow, requested: member.logicalSnapshot)
+            if restore.status == .restoredExactly || restore.status == .restoredWithAdjustment {
+                var updated = member
+                updated.isParked = false
+                updated.parkedFrame = nil
+                workspaceManager.replaceMember(updated, in: workspaceID)
+            }
+            return workspaceEngine.map(restore, member: member, workspaceID: workspaceID, operation: .restore)
+        }
+        let metrics = WorkspaceSwitchMetrics(captureMilliseconds: 0, parkingMilliseconds: 0, restoreMilliseconds: 0, totalMilliseconds: 0, windowsProcessed: results.count)
+        workspaceSwitchResult = WorkspaceSwitchResult(sourceWorkspaceID: nil, targetWorkspaceID: workspaceManager.activeWorkspaceID, results: results, metrics: metrics)
+        actionStatus = "Recovery completed: \(workspaceSwitchResult?.restoredCount ?? 0) exact, \(workspaceSwitchResult?.adjustedCount ?? 0) adjusted, \(workspaceSwitchResult?.failedCount ?? 0) failed."
+        refresh()
+    }
+
+    func exitExperimentalWorkspaceMode() {
+        guard experimentalWorkspaceModeEnabled else { return }
+        recoverManagedWindows()
+        experimentalWorkspaceModeEnabled = false
+        actionStatus = "Experimental Workspace Mode exited after explicit recovery."
     }
 
     func captureSelectedWindow() {

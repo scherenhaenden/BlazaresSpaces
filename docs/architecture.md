@@ -1,6 +1,6 @@
 # Architecture
 
-## 0.0.1 boundaries
+## 0.0.1–0.0.3 boundaries
 
 - **Domain diagnostics:** immutable `DisplaySnapshot`, `WindowSnapshot`, and runtime identity values contain no `AXUIElement` references.
 - **Display integration:** `DisplayManager` combines public `NSScreen` metadata with `CGDisplayBounds`. Diagnostics and mapping use the same top-left global coordinate system as Accessibility.
@@ -10,6 +10,9 @@
 - **Snapshots:** `WorkspaceSnapshot` and `WorkspaceSnapshotStore` hold an in-memory read-only capture. `DiagnosticsViewModel.captureAllWindows()` re-discovers external windows and never writes AX attributes.
 - **External test authorization:** `WindowManagementPolicy` excludes conservative application defaults. `WindowAuthorization` turns one explicitly selected discovered snapshot into an `AuthorizedExternalWindow`; discovery itself never creates authorization.
 - **External mutation:** `AXExternalWindowController` accepts only an authorized token, requires a usable AX runtime identifier, re-locates the exact PID/bundle/AX identifier before every operation, writes size then position, and reads the resulting frame for classification.
+- **Logical workspace domain:** `WorkspaceManager` owns a dynamic ordered collection of logical workspaces and an in-memory many-to-many window relationship. `WorkspaceMember.workspaceIDs` supports one or many memberships; `visibleOnAllWorkspaces` is a separate sticky semantic so future workspaces include the window without copying a fixed list forever.
+- **Workspace controller:** `WorkspaceSwitchEngine` compares the source and target membership views. A source window is parked only when it is source-only and non-sticky. A shared or sticky window remains visible and keeps its current geometry. Target-only windows restore their saved logical frame. The first implementation uses one global geometry per shared window; workspace-specific geometry remains a later extension.
+- **Experimental parking:** `ParkingPositionCalculator` derives deterministic parking slots from the union of connected display frames. `WorkspaceMember.logicalSnapshot` is never replaced by the temporary `parkedFrame`. All operations are in memory, explicit, and reported through `WorkspaceSwitchResult` metrics and per-window outcomes.
 
 The app sandbox is disabled because sandboxed processes cannot serve as a desktop-wide Accessibility client. No private entitlement or API is used.
 
@@ -38,6 +41,12 @@ Restoration uses size-then-position as the current experiment order, then reads 
 
 Fullscreen and minimized values remain diagnostic fields only. They are not mutated or restored because support is not yet proven.
 
+## Dynamic workspace safety
+
+Workspace creation, rename, activation, and deletion operate only on logical containers. Deletion requires an explicit destination when an exclusive member would otherwise become orphaned; no window is closed or destroyed. A newly discovered window is never adopted automatically. Assignment is available only after explicit external-window authorization, and the UI distinguishes **Move to workspace**, **Add to workspace**, and **Show on all workspaces**.
+
+Minimized and fullscreen windows are conservatively rejected by the experimental write path. Native macOS Spaces, private WindowServer APIs, hotkeys, persistence, and crash recovery remain out of scope for 0.0.3.
+
 ## Next boundary
 
-The next iteration should validate external selection and restoration on real monitor topologies and applications. Any future external mutation must remain user initiated, report each failure, and be tested manually before workspace switching is considered. See [window-deactivation.md](window-deactivation.md) for strategies that remain intentionally unimplemented.
+The next iteration should validate switching and recovery on real monitor topologies and applications, including same-application windows with different runtime identities. Any future external mutation must remain user initiated, report each failure, and be tested manually. See [window-deactivation.md](window-deactivation.md) for the parking tradeoffs and remaining experiments.
