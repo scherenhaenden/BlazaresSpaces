@@ -85,6 +85,8 @@ final class DiagnosticsViewModel: ObservableObject {
     var restorationItems: [RestorationReviewItem] { service.restorationItems }
     var actionStatus: String? { localActionStatus ?? service.actionStatus }
     var restoreReport: WindowRestoreReport? { localRestoreReport ?? service.restoreReport }
+    var excludedBundleIdentifierPrefixes: [String] { service.managementPolicy.excludedBundleIdentifierPrefixes }
+    var excludedApplicationNames: [String] { service.managementPolicy.excludedApplicationNames }
 
     var externalTestModeEnabled: Bool {
         selectedTestWindowID != nil || !selectedTestSetIDs.isEmpty

@@ -13,6 +13,7 @@ struct DailyDriverDashboardView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     safetyBanner
+                    safetyExclusions
                     desktopController
                     managedWindows
                     restoration
@@ -135,6 +136,27 @@ struct DailyDriverDashboardView: View {
             .padding(8)
         }
         .accessibilityIdentifier("dailyDriverDesktopManager")
+    }
+
+    private var safetyExclusions: some View {
+        GroupBox("Safety exclusions") {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("NEVER MANAGE", systemImage: "nosign")
+                    .foregroundStyle(.red)
+                Text("These applications are discovered for visibility only and can never be moved, parked, resized, hidden, or restored by BlazaresSpaces.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(model.excludedApplicationNames, id: \.self) { name in
+                    Text("• (name)")
+                }
+                ForEach(model.excludedBundleIdentifierPrefixes, id: \.self) { prefix in
+                    Text("• Bundle prefix: (prefix)")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+        }
+        .accessibilityIdentifier("safetyExclusionsSection")
     }
 
     private func desktopRow(_ id: WorkspaceID) -> some View {
