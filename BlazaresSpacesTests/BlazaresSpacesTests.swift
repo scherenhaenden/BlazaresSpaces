@@ -36,6 +36,11 @@ struct BlazaresSpacesTests {
         )
     }
 
+    private func authorizedMember(_ snapshot: WindowSnapshot, workspaces: Set<WorkspaceID> = []) -> WorkspaceMember {
+        let authorized = try! WindowAuthorization.authorize(snapshot, policy: .developmentDefaults).get()
+        return WorkspaceMember(authorizedWindow: authorized, logicalSnapshot: snapshot, workspaceIDs: workspaces)
+    }
+
     @Test func mapsWindowToDisplayWithLargestIntersection() {
         let displays = [
             display(id: 1, frame: CGRect(x: 0, y: 0, width: 1000, height: 800)),
@@ -194,5 +199,93 @@ struct BlazaresSpacesTests {
         let second = window(identifier: "window-b")
         #expect(first.runtimeIdentity.processIdentifier == second.runtimeIdentity.processIdentifier)
         #expect(first.runtimeIdentity.accessibilityIdentifier != second.runtimeIdentity.accessibilityIdentifier)
+    }
+
+    @Test func windowCanBelongToOneWorkspace() {
+        var manager = WorkspaceManager()
+        manager.moveToWorkspace(authorizedMember(window()), workspaceID: .workspace1)
+        #expect(manager.workspaceContaining(window().runtimeIdentity) == [.workspace1])
+        #expect(manager.workspace(for: .workspace1).members.count == 1)
+    }
+
+    @Test func windowCanBelongToMultipleWorkspacesAndAddPreservesMembership() {
+        var manager = WorkspaceManager()
+        let member = authorizedMember(window())
+        manager.moveToWorkspace(member, workspaceID: .workspace1)
+        manager.addToWorkspace(member, workspaceID: .workspace2)
+        #expect(manager.workspaceContaining(member.id) == [.workspace1, .workspace2])
+        #expect(manager.workspace(for: .workspace1).members.count == 1)
+        #expect(manager.workspace(for: .workspace2).members.count == 1)
+    }
+
+    @Test func moveToReplacesExistingMemberships() {
+        var manager = WorkspaceManager()
+        let member = authorizedMember(window())
+        manager.moveToWorkspace(member, workspaceID: .workspace1)
+        manager.addToWorkspace(member, workspaceID: .workspace2)
+        manager.moveToWorkspace(member, workspaceID: .workspace2)
+        #expect(manager.workspaceContaining(member.id) == [.workspace2])
+    }
+
+    @Test func stickyWindowAppearsOnCurrentAndFutureWorkspaces() {
+        var manager = WorkspaceManager()
+        let member = authorizedMember(window())
+        manager.moveToWorkspace(member, workspaceID: .workspace1)
+        manager.setVisibleOnAllWorkspaces(member, visible: true)
+        let newID = manager.addWorkspace()
+        #expect(manager.workspace(for: .workspace2).members.contains(where: { $0.id == member.id }))
+        #expect(manager.workspace(for: newID).members.contains(where: { $0.id == member.id }))
+        #expect(manager.member(for: member.id)?.visibleOnAllWorkspaces == true)
+    }
+
+    @Test func sharedAndStickyWindowsRemainVisibleDuringSwitchPolicy() {
+        var manager = WorkspaceManager()
+        let shared = authorizedMember(window(identifier: "shared"))
+        let sticky = authorizedMember(window(identifier: "sticky"))
+        let sourceOnly = authorizedMember(window(identifier: "source"))
+        let targetOnly = authorizedMember(window(identifier: "target"))
+        manager.moveToWorkspace(shared, workspaceID: .workspace1)
+        manager.addToWorkspace(shared, workspaceID: .workspace2)
+        manager.moveToWorkspace(sticky, workspaceID: .workspace1)
+        manager.setVisibleOnAllWorkspaces(sticky, visible: true)
+        manager.moveToWorkspace(sourceOnly, workspaceID: .workspace1)
+        manager.moveToWorkspace(targetOnly, workspaceID: .workspace2)
+
+        let engine = WorkspaceSwitchEngine()
+        let toPark = engine.membersToPark(from: manager.workspace(for: .workspace1), to: manager.workspace(for: .workspace2))
+        let toRestore = engine.membersToRestore(from: manager.workspace(for: .workspace1), to: manager.workspace(for: .workspace2))
+        #expect(toPark.map(\.id) == [sourceOnly.id])
+        #expect(toRestore.map(\.id) == [targetOnly.id])
+    }
+
+    @Test func deletingWorkspaceDoesNotDestroyWindowsAndRequiresSafeDestination() {
+        var manager = WorkspaceManager()
+        let member = authorizedMember(window())
+        manager.moveToWorkspace(member, workspaceID: .workspace2)
+        #expect(manager.deleteWorkspace(.workspace2, moveExclusiveMembersTo: .workspace1) == true)
+        #expect(manager.member(for: member.id) != nil)
+        #expect(manager.workspaceContaining(member.id) == [.workspace1])
+    }
+
+    @Test func dynamicWorkspaceCreationRenameAndDeletion() {
+        var manager = WorkspaceManager()
+        let id = manager.addWorkspace(name: "Research")
+        #expect(manager.workspaceIDs.contains(id))
+        #expect(manager.renameWorkspace(id, name: "Writing") == true)
+        #expect(manager.workspace(for: id).name == "Writing")
+        #expect(manager.deleteWorkspace(id) == true)
+        #expect(!manager.workspaceIDs.contains(id))
+    }
+
+    @Test func parkingUsesUnionTopologyAndDeterministicSlots() {
+        let calculator = ParkingPositionCalculator(gap: 50, rowSpacing: 200)
+        let displays = [
+            display(id: 1, frame: CGRect(x: -1000, y: -100, width: 1000, height: 800)),
+            display(id: 2, frame: CGRect(x: 0, y: 0, width: 1600, height: 900))
+        ]
+        let first = calculator.parkingFrame(slot: 0, windowSize: CGSize(width: 400, height: 300), displays: displays)!
+        let second = calculator.parkingFrame(slot: 1, windowSize: CGSize(width: 400, height: 300), displays: displays)!
+        #expect(first.minX > 1600)
+        #expect(second.minY > first.minY)
     }
 }

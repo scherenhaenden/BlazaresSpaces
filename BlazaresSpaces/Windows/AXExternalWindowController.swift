@@ -66,6 +66,12 @@ struct AXExternalWindowController {
         case let .failure(error): return result(base, for: error)
         }
 
+        guard snapshot.isMinimized != true, snapshot.isFullscreen != true,
+              boolAttribute(kAXMinimizedAttribute, of: element) != true,
+              boolAttribute("AXFullScreen", of: element) != true else {
+            return WindowRestoreResult(base, status: .unsupported, message: "Minimized and fullscreen windows are not mutated by the workspace experiment.")
+        }
+
         // Size first, then position: the final position is applied after any
         // application geometry constraints have been handled by the resize.
         switch setSize(snapshot.frame.size, on: element) {
@@ -90,6 +96,54 @@ struct AXExternalWindowController {
             actualFrame: actualFrame,
             status: exact ? .restoredExactly : .restoredWithAdjustment,
             message: exact ? "Requested frame verified after restore." : "AX restored a different frame; the actual result is reported."
+        )
+    }
+
+    func park(
+        _ target: AuthorizedExternalWindow,
+        current snapshot: WindowSnapshot,
+        at position: CGPoint
+    ) -> WindowRestoreResult {
+        let requestedFrame = CGRect(origin: position, size: snapshot.frame.size)
+        let base = WindowRestoreResult(
+            id: target.runtimeIdentity,
+            applicationName: target.applicationName,
+            processIdentifier: target.processIdentifier,
+            requestedFrame: requestedFrame,
+            actualFrame: nil,
+            status: .failed,
+            message: "Parking did not run."
+        )
+        guard policy.exclusionReason(for: target.snapshot) == nil else {
+            return WindowRestoreResult(base, status: .excluded, message: "Excluded by the active window-management policy.")
+        }
+        guard snapshot.isMinimized != true, snapshot.isFullscreen != true else {
+            return WindowRestoreResult(base, status: .unsupported, message: "Minimized and fullscreen windows are not parked by the workspace experiment.")
+        }
+
+        let element: AXUIElement
+        switch locate(target) {
+        case let .success(found): element = found
+        case let .failure(error): return result(base, for: error)
+        }
+        guard boolAttribute(kAXMinimizedAttribute, of: element) != true,
+              boolAttribute("AXFullScreen", of: element) != true else {
+            return WindowRestoreResult(base, status: .unsupported, message: "The selected window became minimized or fullscreen.")
+        }
+
+        switch setPosition(position, on: element) {
+        case let .failure(error): return result(base, for: error)
+        case .success: break
+        }
+        guard let actualFrame = readFrame(of: element) else {
+            return WindowRestoreResult(base, status: .failed, message: "AX accepted parking but the resulting frame could not be read.")
+        }
+        let exact = WindowFrameComparison.isWithinTolerance(requested: requestedFrame, actual: actualFrame, tolerance: frameTolerance)
+        return WindowRestoreResult(
+            base,
+            actualFrame: actualFrame,
+            status: exact ? .restoredExactly : .restoredWithAdjustment,
+            message: exact ? "Parking frame verified." : "The application adjusted the parking frame."
         )
     }
 
