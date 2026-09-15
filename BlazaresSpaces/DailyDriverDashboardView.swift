@@ -49,9 +49,9 @@ struct DailyDriverDashboardView: View {
             Spacer()
 
             Button("Previous") { model.activatePreviousWorkspace() }
-                .disabled(!model.experimentalWorkspaceModeEnabled && !model.experimentalNativeSpacesEnabled)
+                .disabled(model.isNativeActivationInProgress || (!model.experimentalWorkspaceModeEnabled && !model.experimentalNativeSpacesEnabled))
             Button("Next") { model.activateNextWorkspace() }
-                .disabled(!model.experimentalWorkspaceModeEnabled && !model.experimentalNativeSpacesEnabled)
+                .disabled(model.isNativeActivationInProgress || (!model.experimentalWorkspaceModeEnabled && !model.experimentalNativeSpacesEnabled))
             Button("Refresh") { model.refresh() }
                 .keyboardShortcut("r", modifiers: .command)
         }
@@ -130,6 +130,11 @@ struct DailyDriverDashboardView: View {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .font(.callout)
                         .foregroundStyle(.orange)
+                }
+
+                if model.isNativeActivationInProgress {
+                    ProgressView("Native Space activation in progress…")
+                        .controlSize(.small)
                 }
 
                 GroupBox("Native macOS Spaces") {
@@ -262,7 +267,7 @@ struct DailyDriverDashboardView: View {
 
             if !isActive {
                 Button("Activate") { model.activateWorkspace(id) }
-                    .disabled(!model.experimentalWorkspaceModeEnabled && !model.experimentalNativeSpacesEnabled)
+                    .disabled(model.isNativeActivationInProgress || (!model.experimentalWorkspaceModeEnabled && !model.experimentalNativeSpacesEnabled))
             } else {
                 Text("Active")
                     .font(.caption.weight(.semibold))
@@ -431,7 +436,7 @@ struct DailyDriverDashboardView: View {
     private var diagnostics: some View {
         DisclosureGroup("Advanced Diagnostics", isExpanded: $showAdvancedDiagnostics) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Displays: \(model.displays.count) · Discovered windows: \(model.windows.count) · Discovery issues: \(model.issues.count)")
+                Text("Displays: \(model.displays.count) · Discovered windows: \(model.windows.count) · Discovery issues: \(model.issues.count)\(model.isDiscoveringWindows ? " · AX discovery in progress" : "")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -456,6 +461,23 @@ struct DailyDriverDashboardView: View {
                             .foregroundStyle(.orange)
                             .textSelection(.enabled)
                     }
+                }
+
+                if !model.nativeSpaceOperationLog.isEmpty {
+                    Text("Native Spaces operation log")
+                        .font(.headline)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(model.nativeSpaceOperationLog.enumerated()), id: \.offset) { _, entry in
+                                Text(entry)
+                                    .font(.caption)
+                                    .fontDesign(.monospaced)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 180)
                 }
             }
             .padding(.top, 8)

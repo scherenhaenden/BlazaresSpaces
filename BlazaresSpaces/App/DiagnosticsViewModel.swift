@@ -96,6 +96,7 @@ final class DiagnosticsViewModel: ObservableObject {
     var displays: [DisplaySnapshot] { service.displays }
     var windows: [WindowSnapshot] { service.windows }
     var issues: [WindowDiscoveryIssue] { service.issues }
+    var isDiscoveringWindows: Bool { service.isDiscoveringWindows }
     var lastRefresh: Date? { service.lastRefresh }
     var workspaceManager: WorkspaceManager { service.workspaceManager }
     var workspaceIDs: [WorkspaceID] { service.workspaceManager.workspaceIDs }
@@ -115,6 +116,8 @@ final class DiagnosticsViewModel: ObservableObject {
     var focusedWindowState: WorkspaceApplicationService.FocusedWindowState { service.focusedWindowState }
     var nativeSpaceTopology: NativeSpaceTopology? { service.nativeSpaceTopology }
     var nativeSpaceReadStatus: String { service.nativeSpaceReadStatus }
+    var nativeSpaceOperationLog: [String] { service.nativeSpaceOperationLog }
+    var isNativeActivationInProgress: Bool { service.isNativeActivationInProgress }
     func updateManagementExclusions(applicationNames: [String], bundlePrefixes: [String]) {
         service.updateManagementExclusions(applicationNames: applicationNames, bundlePrefixes: bundlePrefixes)
     }

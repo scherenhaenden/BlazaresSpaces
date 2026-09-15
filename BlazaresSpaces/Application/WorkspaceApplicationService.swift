@@ -25,6 +25,7 @@ final class WorkspaceApplicationService: ObservableObject {
     @Published private(set) var displays: [DisplaySnapshot] = []
     @Published private(set) var windows: [WindowSnapshot] = []
     @Published private(set) var issues: [WindowDiscoveryIssue] = []
+    @Published private(set) var isDiscoveringWindows = false
     @Published private(set) var lastRefresh: Date?
 
     @Published private(set) var workspaceManager = WorkspaceManager()
@@ -42,6 +43,8 @@ final class WorkspaceApplicationService: ObservableObject {
     @Published private(set) var focusedWindowState: FocusedWindowState = .none
     @Published private(set) var nativeSpaceTopology: NativeSpaceTopology?
     @Published private(set) var nativeSpaceReadStatus = "Native Spaces not refreshed"
+    @Published private(set) var nativeSpaceOperationLog: [String] = []
+    @Published private(set) var isNativeActivationInProgress = false
 
     let windowDiscovery: any WindowDiscovering
     let focusedWindowProvider: any FocusedWindowProviding
@@ -59,6 +62,8 @@ final class WorkspaceApplicationService: ObservableObject {
 
     private var persistedState: PersistedStateV1?
     private var switchQueue = WorkspaceSwitchRequestQueue()
+    private var windowDiscoveryTask: Task<Void, Never>?
+    private var nativeActivationTask: Task<Void, Never>?
     private var hasCompletedInitialRefresh = false
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BlazaresSpaces", category: "ApplicationService")
 
@@ -145,12 +150,11 @@ final class WorkspaceApplicationService: ObservableObject {
         }
 
         if accessibilityGranted {
-            let result = windowDiscovery.discover(displays: displays)
-            windows = result.windows
-            issues = result.issues
-            refreshFocusedWindow()
-            evaluateRestoration()
+            beginWindowDiscovery(for: displays)
         } else {
+            windowDiscoveryTask?.cancel()
+            windowDiscoveryTask = nil
+            isDiscoveringWindows = false
             windows = []
             issues = []
             focusedWindowState = .unavailable("Accessibility permission is unavailable.")
@@ -168,19 +172,43 @@ final class WorkspaceApplicationService: ObservableObject {
         hasCompletedInitialRefresh = true
     }
 
+    private func beginWindowDiscovery(for currentDisplays: [DisplaySnapshot]) {
+        windowDiscoveryTask?.cancel()
+        let discovery = windowDiscovery
+        isDiscoveringWindows = true
+        windowDiscoveryTask = Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                discovery.discover(displays: currentDisplays)
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.windows = result.windows
+            self?.issues = result.issues
+            self?.isDiscoveringWindows = false
+            self?.refreshFocusedWindow()
+            self?.evaluateRestoration()
+        }
+    }
+
     func refreshNativeSpaceTopology() {
         switch nativeSpacesProvider.readTopology() {
         case let .success(topology):
             nativeSpaceTopology = topology
             let count = topology.spaces.filter { $0.kind == .userDesktop }.count
             nativeSpaceReadStatus = "Detected \(count) ordinary native Space(s) across \(topology.displays.count) display(s) · separate Spaces: \(topology.separateSpaces ? "ON" : "OFF")"
+            appendNativeSpaceLog("READ success · displays=\(topology.displays.count) · spaces=\(topology.spaces.count) · separateSpaces=\(topology.separateSpaces)")
         case let .failure(error):
             nativeSpaceTopology = nil
             switch error {
             case let .unavailable(message), let .malformedData(message):
                 nativeSpaceReadStatus = "Native Space read failed: \(message)"
+                appendNativeSpaceLog("READ failed · \(message)")
             }
         }
+    }
+
+    private func appendNativeSpaceLog(_ message: String) {
+        let timestamp = Date().formatted(.dateTime.hour().minute().second())
+        nativeSpaceOperationLog = Array((nativeSpaceOperationLog + ["\(timestamp) · \(message)"]).suffix(100))
     }
 
     // MARK: - Focused Window Quick Actions
@@ -484,18 +512,39 @@ final class WorkspaceApplicationService: ObservableObject {
     }
 
     private func activateNativeWorkspace(_ id: WorkspaceID) {
-        guard let position = workspaceManager.workspaceOrder.firstIndex(of: id).map({ $0 + 1 }) else { return }
-        guard case let .success(topology) = nativeSpacesProvider.readTopology() else {
-            actionStatus = "Native Spaces topology is unavailable; no logical-only activation was performed."
+        guard !isNativeActivationInProgress else {
+            actionStatus = "A native Space activation is already in progress."
+            appendNativeSpaceLog("ACTIVATE ignored · operation already in progress")
             return
         }
-        switch nativeSpacesController.activate(virtualPosition: position, topology: topology) {
-        case .activated:
-            _ = workspaceManager.activate(id)
-            persistAuthoritativeState()
-            actionStatus = "Activated native macOS Desktop \(position) for \(workspaceName(id))."
-        case let .unavailable(message), let .failed(message):
-            actionStatus = "Native activation failed: \(message)"
+        guard let position = workspaceManager.workspaceOrder.firstIndex(of: id).map({ $0 + 1 }) else { return }
+        appendNativeSpaceLog("ACTIVATE requested · virtual=\(position) · name=\(workspaceName(id))")
+        guard case let .success(topology) = nativeSpacesProvider.readTopology() else {
+            actionStatus = "Native Spaces topology is unavailable; no logical-only activation was performed."
+            appendNativeSpaceLog("ACTIVATE failed · topology unavailable")
+            return
+        }
+        let current = topology.spaces.filter { $0.isCurrent && $0.kind == .userDesktop }
+        appendNativeSpaceLog("ACTIVATE topology · current=\(current.map { "\($0.displayIdentifier):\($0.runtimeID)" }.joined(separator: ","))")
+        let controller = nativeSpacesController
+        isNativeActivationInProgress = true
+        actionStatus = "Activating native macOS Desktop \(position)…"
+        nativeActivationTask = Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                controller.activate(virtualPosition: position, topology: topology)
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.isNativeActivationInProgress = false
+            switch result {
+            case .activated:
+                _ = self?.workspaceManager.activate(id)
+                self?.persistAuthoritativeState()
+                self?.actionStatus = "Activated native macOS Desktop \(position) for \(self?.workspaceName(id) ?? "Virtual Space")."
+                self?.appendNativeSpaceLog("ACTIVATE success · virtual=\(position)")
+            case let .unavailable(message), let .failed(message):
+                self?.actionStatus = "Native activation failed: \(message)"
+                self?.appendNativeSpaceLog("ACTIVATE failed · \(message)")
+            }
         }
     }
 
@@ -504,6 +553,7 @@ final class WorkspaceApplicationService: ObservableObject {
         actionStatus = enabled
             ? "Experimental native activation enabled. Existing Spaces only; creation/deletion is not automatic."
             : "Experimental native activation disabled."
+        appendNativeSpaceLog(enabled ? "MODE enabled" : "MODE disabled")
     }
 
     func activateNextWorkspace() {
