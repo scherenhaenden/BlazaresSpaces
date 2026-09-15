@@ -16,6 +16,36 @@ protocol FocusedWindowProviding: Sendable {
     func focusedWindow(displays: [DisplaySnapshot]) -> FocusedWindowObservation?
 }
 
+/// Semantic activation intent for a Virtual Space. Native macOS Spaces are
+/// intentionally outside this boundary; the current implementation only
+/// chooses between the logical model and the managed-window mechanism.
+enum VirtualSpaceActivationMode: Equatable, Sendable {
+    case logicalOnly
+    case managedWindows
+}
+
+enum VirtualSpaceActivationStrategy: Equatable, Sendable {
+    case logicalOnly
+    case managedWindowSwitch
+}
+
+protocol VirtualSpaceActivationStrategyProviding: Sendable {
+    func strategy(for mode: VirtualSpaceActivationMode) -> VirtualSpaceActivationStrategy
+}
+
+struct LogicalVirtualSpaceActivationAdapter: VirtualSpaceActivationStrategyProviding {
+    nonisolated init() {}
+
+    nonisolated func strategy(for mode: VirtualSpaceActivationMode) -> VirtualSpaceActivationStrategy {
+        switch mode {
+        case .logicalOnly:
+            return .logicalOnly
+        case .managedWindows:
+            return .managedWindowSwitch
+        }
+    }
+}
+
 protocol WindowControlling: Sendable {
     func capture(
         _ target: AuthorizedExternalWindow,

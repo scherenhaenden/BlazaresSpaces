@@ -38,7 +38,7 @@ struct DailyDriverDashboardView: View {
                 Text("Personal Daily Driver · 0.3.0")
                     .font(.headline)
                     .foregroundStyle(.secondary)
-                Text("Active desktop: \(model.workspaceName(model.workspaceManager.activeWorkspaceID))")
+                Text("Active Virtual Space: \(model.workspaceName(model.workspaceManager.activeWorkspaceID))")
                     .font(.title3.weight(.semibold))
                     .accessibilityIdentifier("activeDesktopStatus")
                 Label(statusSummary, systemImage: statusSymbol)
@@ -87,7 +87,7 @@ struct DailyDriverDashboardView: View {
     }
 
     private var desktopController: some View {
-        GroupBox("Desktops") {
+        GroupBox("Virtual Spaces") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     if model.experimentalWorkspaceModeEnabled {
@@ -95,13 +95,13 @@ struct DailyDriverDashboardView: View {
                             .buttonStyle(.borderedProminent)
                         Button("Exit & Recover") { model.exitExperimentalWorkspaceMode() }
                     } else {
-                        Button("Enable Desktop Switching") { model.enterExperimentalWorkspaceMode() }
+                        Button("Enable Virtual Space Switching") { model.enterExperimentalWorkspaceMode() }
                             .buttonStyle(.borderedProminent)
                             .disabled(!model.accessibilityGranted)
                             .accessibilityIdentifier("enableDesktopSwitchingButton")
                     }
 
-                    Button("Add Desktop") { model.addWorkspace() }
+                    Button("Add Virtual Space") { model.addWorkspace() }
                         .accessibilityIdentifier("addWorkspaceButton")
 
                     Spacer()
@@ -212,7 +212,7 @@ struct DailyDriverDashboardView: View {
             Image(systemName: isActive ? "circle.inset.filled" : "circle")
                 .foregroundStyle(isActive ? .green : .secondary)
 
-            TextField("Desktop name", text: workspaceNameBinding(id, currentName: workspace.name))
+            TextField("Virtual Space name", text: workspaceNameBinding(id, currentName: workspace.name))
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 180)
                 .onSubmit {
@@ -309,7 +309,7 @@ struct DailyDriverDashboardView: View {
             if exclusion == nil {
                 HStack {
                     if managed {
-                        Menu("Move to Desktop") {
+                        Menu("Move to Virtual Space") {
                             ForEach(model.workspaceIDs) { workspaceID in
                                 Button(model.workspaceName(workspaceID)) {
                                     model.assignWindow(window, to: workspaceID, move: true)
@@ -317,7 +317,7 @@ struct DailyDriverDashboardView: View {
                             }
                         }
 
-                        Menu("Show on Desktop") {
+                        Menu("Show on Virtual Space") {
                             ForEach(model.workspaceIDs) { workspaceID in
                                 Button(model.workspaceName(workspaceID)) {
                                     model.assignWindow(window, to: workspaceID, move: false)
@@ -325,7 +325,7 @@ struct DailyDriverDashboardView: View {
                             }
                         }
 
-                        Button(model.isWindowSticky(window) ? "Remove from All Desktops" : "Show on All Desktops") {
+                        Button(model.isWindowSticky(window) ? "Remove from All Virtual Spaces" : "Show on All Virtual Spaces") {
                             model.setWindowVisibleOnAllWorkspaces(window, visible: !model.isWindowSticky(window))
                         }
 
@@ -342,7 +342,7 @@ struct DailyDriverDashboardView: View {
                     Spacer()
 
                     if managed {
-                        Text(memberships.isEmpty ? "No desktop membership" : memberships.map { model.workspaceName($0) }.sorted().joined(separator: ", "))
+                        Text(memberships.isEmpty ? "No Virtual Space membership" : memberships.map { model.workspaceName($0) }.sorted().joined(separator: ", "))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -403,7 +403,7 @@ struct DailyDriverDashboardView: View {
                 HStack {
                     Button("Open Inspector") { openWindow(id: "inspector") }
                     Button("Window Control Lab") { openWindow(id: "window-control-lab") }
-                    Button("Capture Read-Only Desktop Snapshot") { model.captureAllWindows() }
+                    Button("Capture Read-Only macOS Spaces Snapshot") { model.captureAllWindows() }
                 }
 
                 if let result = model.workspaceSwitchResult {
@@ -427,10 +427,10 @@ struct DailyDriverDashboardView: View {
 
     private var statusSummary: String {
         switch model.workspaceSwitchState {
-        case .idle: return model.experimentalWorkspaceModeEnabled ? "Desktop switching ready" : "Desktop switching disabled"
-        case .switching: return "Switching desktops…"
+        case .idle: return model.experimentalWorkspaceModeEnabled ? "Virtual Space switching ready" : "Virtual Space switching disabled"
+        case .switching: return "Switching Virtual Spaces…"
         case .recovering: return "Recovering managed windows…"
-        case .degraded: return "Desktop switching paused"
+        case .degraded: return "Virtual Space switching paused"
         }
     }
 

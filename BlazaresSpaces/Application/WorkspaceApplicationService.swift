@@ -42,6 +42,7 @@ final class WorkspaceApplicationService: ObservableObject {
 
     let windowDiscovery: any WindowDiscovering
     let focusedWindowProvider: any FocusedWindowProviding
+    let activationStrategyProvider: any VirtualSpaceActivationStrategyProviding
     let windowController: any WindowControlling
     let displayProvider: any DisplayTopologyProviding
     let permissionManager: any AccessibilityChecking
@@ -60,6 +61,7 @@ final class WorkspaceApplicationService: ObservableObject {
         self.init(
             windowDiscovery: AXWindowDiscovery(),
             focusedWindowProvider: AXFocusedWindowProvider(),
+            activationStrategyProvider: LogicalVirtualSpaceActivationAdapter(),
             windowController: AXExternalWindowController(),
             displayProvider: DisplayManager(),
             permissionManager: AccessibilityPermissionManager(),
@@ -81,10 +83,12 @@ final class WorkspaceApplicationService: ObservableObject {
         shortcutManager: any HotkeyRegistering,
         managementPolicy: WindowManagementPolicy,
         workspaceEngine: WorkspaceSwitchEngine,
-        restorationCoordinator: SessionRestorationCoordinator
+        restorationCoordinator: SessionRestorationCoordinator,
+        activationStrategyProvider: any VirtualSpaceActivationStrategyProviding = LogicalVirtualSpaceActivationAdapter()
     ) {
         self.windowDiscovery = windowDiscovery
         self.focusedWindowProvider = focusedWindowProvider
+        self.activationStrategyProvider = activationStrategyProvider
         self.windowController = windowController
         self.displayProvider = displayProvider
         self.permissionManager = permissionManager
@@ -421,9 +425,11 @@ final class WorkspaceApplicationService: ObservableObject {
             actionStatus = "That desktop no longer exists."
             return
         }
-        if experimentalWorkspaceModeEnabled {
+        let mode: VirtualSpaceActivationMode = experimentalWorkspaceModeEnabled ? .managedWindows : .logicalOnly
+        switch activationStrategyProvider.strategy(for: mode) {
+        case .managedWindowSwitch:
             switchWorkspace(to: id)
-        } else {
+        case .logicalOnly:
             _ = workspaceManager.activate(id)
             persistAuthoritativeState()
             actionStatus = "Activated \(workspaceName(id)) in the logical desktop model."

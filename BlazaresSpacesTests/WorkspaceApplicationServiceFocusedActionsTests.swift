@@ -104,6 +104,18 @@ struct WorkspaceApplicationServiceFocusedActionsTests {
     }
 }
 
+struct VirtualSpaceActivationStrategyTests {
+    @Test func logicalModeUsesLogicalActivationOnly() {
+        let adapter = LogicalVirtualSpaceActivationAdapter()
+        #expect(adapter.strategy(for: .logicalOnly) == .logicalOnly)
+    }
+
+    @Test func managedWindowModeRoutesToCurrentWindowMechanism() {
+        let adapter = LogicalVirtualSpaceActivationAdapter()
+        #expect(adapter.strategy(for: .managedWindows) == .managedWindowSwitch)
+    }
+}
+
 private final class TestFocusedWindowProvider: @unchecked Sendable, FocusedWindowProviding {
     var observation: FocusedWindowObservation?
     init(observation: FocusedWindowObservation?) { self.observation = observation }

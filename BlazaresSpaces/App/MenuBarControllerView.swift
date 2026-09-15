@@ -6,7 +6,7 @@ struct MenuBarControllerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Active Desktop")
+            Text("Active Virtual Space")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(model.workspaceName(model.workspaceManager.activeWorkspaceID))
@@ -29,16 +29,16 @@ struct MenuBarControllerView: View {
                 }
             }
             Divider()
-            Button("Next Desktop") { model.activateNextWorkspace() }
+            Button("Next Virtual Space") { model.activateNextWorkspace() }
                 .disabled(model.workspaceSwitchState.isDegraded && model.workspaceTopologyChanged)
-            Button("Previous Desktop") { model.activatePreviousWorkspace() }
+            Button("Previous Virtual Space") { model.activatePreviousWorkspace() }
                 .disabled(model.workspaceSwitchState.isDegraded && model.workspaceTopologyChanged)
             Button("Recover Managed Windows") { model.recoverManagedWindows() }
                 .disabled(!model.accessibilityGranted)
             if model.experimentalWorkspaceModeEnabled {
                 Button("Exit & Recover") { model.exitExperimentalWorkspaceMode() }
             } else {
-                Button("Enable Desktop Switching") { model.enterExperimentalWorkspaceMode() }
+                Button("Enable Virtual Space Switching") { model.enterExperimentalWorkspaceMode() }
                     .disabled(!model.accessibilityGranted)
             }
             Toggle("Global shortcuts", isOn: Binding(
@@ -102,7 +102,7 @@ struct MenuBarControllerView: View {
         Menu("Show") {
             workspaceActionButtons(for: window, move: false)
         }
-        Toggle("Show on All Desktops", isOn: Binding(
+        Toggle("Show on All Virtual Spaces", isOn: Binding(
             get: { model.isWindowSticky(window) },
             set: { model.setWindowVisibleOnAllWorkspaces(window, visible: $0) }
         ))
@@ -165,8 +165,8 @@ struct MenuBarControllerView: View {
         exclusion: String?
     ) -> String {
         if let exclusion { return exclusion }
-        if managed { return sticky ? "Managed and visible on all desktops." : "Managed window." }
-        return "Unmanaged external window. Choose a workspace to manage it."
+        if managed { return sticky ? "Managed and visible on all Virtual Spaces." : "Managed window." }
+        return "Unmanaged external window. Choose a Virtual Space to manage it."
     }
 
     private var menuStateText: String {

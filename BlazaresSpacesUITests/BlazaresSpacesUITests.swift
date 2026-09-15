@@ -23,6 +23,11 @@ final class BlazaresSpacesUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["activeDesktopStatus"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["dailyDriverDesktopManager"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["dailyDriverWindowsSection"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Virtual Spaces"].exists)
+        let activeVirtualSpace = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Active Virtual Space:")
+        ).firstMatch
+        XCTAssertTrue(activeVirtualSpace.exists)
     }
 
     @MainActor
@@ -37,6 +42,7 @@ final class BlazaresSpacesUITests: XCTestCase {
         // but the explicit opt-in control must remain visible.
         XCTAssertTrue(app.buttons["enableDesktopSwitchingButton"].exists)
         XCTAssertTrue(app.buttons["Refresh"].exists)
+        XCTAssertTrue(app.buttons["Enable Virtual Space Switching"].exists)
     }
 
     @MainActor
