@@ -43,9 +43,12 @@ nonisolated struct NativeSpaceTopologyMapper: Sendable {
         let displayIDs = topology.displays.map(\.displayIdentifier)
         let ordinaryByDisplay = Dictionary(grouping: topology.spaces.filter { $0.kind == .userDesktop }, by: \.displayIdentifier)
             .mapValues { spaces in spaces.sorted { $0.position < $1.position } }
-        let count = ordinaryByDisplay.values.map(\.count).min() ?? 0
-
-        return (0..<count).map { index in
+        // With separate Spaces enabled, displays may legitimately have
+        // different counts. Keep partial positional bindings so the active
+        // display can still be switched; callers decide whether completeness
+        // is required for a coordinated multi-display operation.
+        let maximumCount = ordinaryByDisplay.values.map(\.count).max() ?? 0
+        return (0..<maximumCount).map { index in
             NativeVirtualSpaceBinding(
                 virtualSpacePosition: index + 1,
                 spacesByDisplay: Dictionary(uniqueKeysWithValues: displayIDs.compactMap { displayID in
@@ -53,7 +56,7 @@ nonisolated struct NativeSpaceTopologyMapper: Sendable {
                     return (displayID, space)
                 })
             )
-        }.filter { $0.spacesByDisplay.count == displayIDs.count }
+        }
     }
 }
 

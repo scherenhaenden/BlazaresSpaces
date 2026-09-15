@@ -16,12 +16,13 @@ struct NativeSpacesController: NativeSpacesControlling {
     nonisolated func activate(virtualPosition: Int, topology: NativeSpaceTopology) -> NativeSpaceActivationResult {
         guard virtualPosition > 0 else { return .failed("Virtual Space position must be positive") }
         let bindings = NativeSpaceTopologyMapper().bindings(for: topology)
-        guard let target = bindings.first(where: { $0.virtualSpacePosition == virtualPosition }) else {
-            return .unavailable("No complete native desktop binding exists for Virtual Space \(virtualPosition)")
-        }
         guard let current = topology.spaces.first(where: { $0.isCurrent && $0.kind == .userDesktop }),
               let currentPosition = bindings.first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == current.runtimeID } })?.virtualSpacePosition else {
             return .failed("Current native desktop could not be resolved")
+        }
+        guard let target = bindings.first(where: { $0.virtualSpacePosition == virtualPosition }),
+              target.spacesByDisplay[current.displayIdentifier] != nil else {
+            return .unavailable("No native desktop exists on active display \(current.displayIdentifier) for Virtual Space \(virtualPosition)")
         }
         let delta = virtualPosition - currentPosition
         if delta == 0 { return .activated }
