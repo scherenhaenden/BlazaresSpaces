@@ -73,7 +73,25 @@ struct NativeSpacesController: NativeSpacesControlling {
         if waitForTarget(targetRuntimeID, semaphore: semaphore, timeout: min(timeout, 2.0)) {
             return .activated
         }
-        return .failed("Control-arrow and Control+\(virtualPosition) were posted, but macOS did not activate or report native Desktop \(virtualPosition)")
+
+        // System Events is the public user-facing automation path used by
+        // macOS itself for keyboard shortcuts. It is intentionally a fallback
+        // because the user must grant Automation permission to System Events.
+        let scriptKeyCode = delta > 0 ? 124 : 123
+        guard postAppleScriptControl(scriptKeyCode, count: abs(delta)) else {
+            return .failed("Control-arrow and Control+\(virtualPosition) were posted, but macOS did not activate Desktop \(virtualPosition); System Events automation was unavailable or denied")
+        }
+        if waitForTarget(targetRuntimeID, semaphore: semaphore, timeout: min(timeout, 2.5)) {
+            return .activated
+        }
+
+        guard postAppleScriptControl(numberKeyCode, count: 1) else {
+            return .failed("System Events posted Control-arrow, but Desktop \(virtualPosition) was not verified; Control+\(virtualPosition) automation was unavailable or denied")
+        }
+        if waitForTarget(targetRuntimeID, semaphore: semaphore, timeout: min(timeout, 2.5)) {
+            return .activated
+        }
+        return .failed("CGEvent and System Events posted the shortcuts, but macOS did not activate or report native Desktop \(virtualPosition)")
     }
 
     private nonisolated func waitForTarget(
@@ -142,6 +160,20 @@ struct NativeSpacesController: NativeSpacesControlling {
         guard (1...9).contains(position) else { return nil }
         // macOS virtual key codes for the number row 1...9.
         return CGKeyCode(17 + position)
+    }
+
+    private nonisolated func postAppleScriptControl(_ keyCode: CGKeyCode, count: Int) -> Bool {
+        let source = """
+        tell application \"System Events\"
+            repeat \(count) times
+                key code \(keyCode) using {control down}
+            end repeat
+        end tell
+        """
+        guard let script = NSAppleScript(source: source) else { return false }
+        var error: NSDictionary?
+        _ = script.executeAndReturnError(&error)
+        return error == nil
     }
 }
 
