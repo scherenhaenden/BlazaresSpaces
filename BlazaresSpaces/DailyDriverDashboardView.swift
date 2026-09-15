@@ -31,11 +31,13 @@ struct DailyDriverDashboardView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("BlazaresSpaces")
                     .font(.largeTitle.bold())
+                    .accessibilityIdentifier("dailyDriverTitle")
                 Text("Personal Daily Driver · 0.3.0")
                     .font(.headline)
                     .foregroundStyle(.secondary)
                 Text("Active desktop: \(model.workspaceName(model.workspaceManager.activeWorkspaceID))")
                     .font(.title3.weight(.semibold))
+                    .accessibilityIdentifier("activeDesktopStatus")
             }
 
             Spacer()
@@ -59,6 +61,7 @@ struct DailyDriverDashboardView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(model.accessibilityGranted ? "Ready for explicit window management" : "Accessibility permission required")
                         .font(.headline)
+                        .accessibilityIdentifier("accessibilityStatus")
                     Text("Discovery remains read-only. Only explicitly managed windows may be moved, parked, restored or recovered. NEVER MANAGE exclusions stay untouched.")
                         .foregroundStyle(.secondary)
                     Text("State: \(model.workspaceSwitchState.displayName) · \(model.persistenceStatus.displayName)")
@@ -89,9 +92,11 @@ struct DailyDriverDashboardView: View {
                         Button("Enable Desktop Switching") { model.enterExperimentalWorkspaceMode() }
                             .buttonStyle(.borderedProminent)
                             .disabled(!model.accessibilityGranted)
+                            .accessibilityIdentifier("enableDesktopSwitchingButton")
                     }
 
                     Button("Add Desktop") { model.addWorkspace() }
+                        .accessibilityIdentifier("addWorkspaceButton")
 
                     Spacer()
 
@@ -190,6 +195,7 @@ struct DailyDriverDashboardView: View {
             }
             .padding(8)
         }
+        .accessibilityIdentifier("dailyDriverWindowsSection")
     }
 
     private func windowRow(_ window: WindowSnapshot) -> some View {
@@ -317,6 +323,7 @@ struct DailyDriverDashboardView: View {
                     .foregroundStyle(.secondary)
 
                 HStack {
+                    Button("Open Inspector") { openWindow(id: "inspector") }
                     Button("Window Control Lab") { openWindow(id: "window-control-lab") }
                     Button("Capture Read-Only Desktop Snapshot") { model.captureAllWindows() }
                 }
