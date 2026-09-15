@@ -433,6 +433,8 @@ final class WorkspaceApplicationService: ObservableObject {
             _ = workspaceManager.activate(id)
             persistAuthoritativeState()
             actionStatus = "Activated \(workspaceName(id)) in the logical desktop model."
+        case .nativeSpacesExperimental:
+            actionStatus = "Native Spaces integration is experimental and unavailable."
         }
     }
 
