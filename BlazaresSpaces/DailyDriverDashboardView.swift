@@ -113,12 +113,6 @@ struct DailyDriverDashboardView: View {
                     .toggleStyle(.switch)
                     .disabled(!model.accessibilityGranted)
 
-                    Toggle("Experimental Native Spaces", isOn: Binding(
-                        get: { model.experimentalNativeSpacesEnabled },
-                        set: { model.setExperimentalNativeSpacesEnabled($0) }
-                    ))
-                    .toggleStyle(.switch)
-                    .disabled(!model.accessibilityGranted)
                 }
 
                 if model.workspaceTopologyChanged {
@@ -130,6 +124,34 @@ struct DailyDriverDashboardView: View {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .font(.callout)
                         .foregroundStyle(.orange)
+                }
+
+                GroupBox("Native macOS Spaces") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Read-only inspection. BlazaresSpaces will not create, delete, reorder, activate, or move windows between native Spaces.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Text(model.nativeSpaceReadStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Refresh Native Spaces") { model.refreshNativeSpaceTopology() }
+                        }
+                        if let topology = model.nativeSpaceTopology {
+                            let bindings = NativeSpaceTopologyMapper().bindings(for: topology)
+                            ForEach(Array(model.workspaceIDs.enumerated()), id: \.element) { offset, id in
+                                let binding = bindings.first { $0.virtualSpacePosition == offset + 1 }
+                                Text("\(offset + 1) \(model.workspaceName(id)): " + nativeBindingText(binding))
+                                    .font(.caption)
+                                    .fontDesign(.monospaced)
+                            }
+                        } else {
+                            Text("No native topology available. Virtual Spaces remain logical.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 ForEach(model.workspaceIDs) { id in
@@ -430,6 +452,12 @@ struct DailyDriverDashboardView: View {
             get: { workspaceNameDrafts[id.rawValue] ?? currentName },
             set: { workspaceNameDrafts[id.rawValue] = $0 }
         )
+    }
+
+    private func nativeBindingText(_ binding: NativeVirtualSpaceBinding?) -> String {
+        guard let binding else { return "native Space unavailable" }
+        return binding.spacesByDisplay.map { "\($0.key)=runtime \($0.value.runtimeID)" }
+            .sorted().joined(separator: ", ")
     }
 
     private var statusSummary: String {

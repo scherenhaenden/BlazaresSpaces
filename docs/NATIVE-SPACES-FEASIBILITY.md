@@ -1,13 +1,12 @@
 # Native macOS Spaces feasibility
 
-Estado: investigación abierta para BlazaresSpaces 0.3.0. Este documento no
-introduce APIs privadas ni cambia el comportamiento de producción.
+Estado: implementado únicamente como inspección read-only experimental para
+BlazaresSpaces 0.3.0. Este documento no habilita mutaciones de Spaces.
 
-La decisión anterior de MODE B no es final. Se evalúan tres estrategias
-independientes: el motor lógico existente, la activación pública mediante
-Mission Control y un backend nativo experimental basado en investigación de
-SkyLight/SLS. La administración directa de Spaces no se habilita por esta
-documentación.
+La aplicación mantiene el motor lógico como comportamiento de producción y
+solo expone un lector experimental de topología nativa. La activación mediante
+Mission Control, la administración directa basada en SkyLight/SLS y cualquier
+operación estructural permanecen deshabilitadas.
 
 ## Regla de clean-room y licencia
 
@@ -37,7 +36,7 @@ que BlazaresSpaces puede prometer.
 | --- | --- | --- | --- | --- | --- | --- |
 | Leer displays y geometría | `NSScreen`, CoreGraphics | No necesario | Completo | No | Público | Soportado |
 | Leer preferencia Separate Spaces | `NSScreen.screensHaveSeparateSpaces` | No necesario | Completo | No | Público | Soportado, limitado |
-| Leer topología de Spaces | No hay inventario público | `SLSCopyManagedDisplaySpaces` y relacionados, sujetos a verificación | Completo en investigación | No necesariamente | Debe verificarse por versión/arquitectura | Prototipo read-only pendiente |
+| Leer topología de Spaces | No hay inventario público | `SLSCopyManagedDisplaySpaces` y relacionados, sujetos a verificación | Completo en investigación | No necesariamente | Debe verificarse por versión/arquitectura | Experimental read-only; falla explícitamente si no puede leer |
 | Leer Space actual, IDs, UUIDs y tipos | No expuesto por AppKit/NSWorkspace | Funciones SLS observadas en herramientas de terceros | Completo en investigación | No necesariamente | Firmas y resultados deben verificarse en Tahoe 26.x | No prometido |
 | Enfocar Space existente | Atajos/Mission Control; `CGEvent` solo solicita acción del usuario | `space --focus` usa interacción SkyLight/SLS en yabai actual | yabai reporta soporte con SIP habilitado desde 7.1.19 | No necesariamente para ese camino | Reportado con fixes continuos | Solo experimental, no implementado |
 | Mover ventana a Space existente | AX puede mover la ventana físicamente, pero no asignarla a un Space | Operaciones SLS/bridged y/o scripting addition según versión | yabai reporta soporte con SIP habilitado de nuevo desde 7.1.25 | Puede ser necesario para rutas concretas | Requiere validación específica | Solo experimental, no implementado |
@@ -63,14 +62,12 @@ La frontera de activación puede tener estas implementaciones:
 ```text
 VirtualSpaceActivationStrategy
 ├── LogicalWindowActivationStrategy       (MODE B, actual y determinista)
-├── MissionControlShortcutActivationStrategy (MODE C-public, experimental)
-└── NativeSpacesActivationStrategy        (MODE C-native, experimental)
+└── NativeSpacesReadOnlyProvider          (experimental, solo lectura)
 ```
 
-El backend lógico conserva parking/restauración AX y sigue siendo el fallback.
-El backend público usa atajos configurados por el usuario y `CGEvent`; no es
-una API de Spaces. El backend nativo, si se implementa, solo puede vivir en
-Infrastructure mediante puertos/adaptadores propios.
+El backend lógico conserva parking/restauración AX y sigue siendo el único
+camino de mutación de ventanas. El lector nativo vive en Infrastructure y no
+contiene controlador, eventos de teclado ni operaciones de Spaces.
 
 Los IDs privados, UUIDs y descriptores nativos son runtime-only hasta que se
 demuestre estabilidad. No se deben persistir como IDs durables ni mostrar en
@@ -190,14 +187,13 @@ permanece predeterminado y el camino público por atajos queda experimental.
 | --- | --- | --- | --- | --- | --- |
 | MODE A | Administración nativa directa completa | APIs privadas/SkyLight | No soportable como promesa | No soportable como promesa | No seleccionado |
 | MODE B | Parking/restauración AX | BlazaresSpaces | Viable | Viable | Predeterminado seguro |
-| MODE C-public | Atajos Mission Control + `CGEvent` | Orden lógico + transición observable | No prometer sincronización | Candidato experimental | Pendiente de pruebas |
-| MODE C-native | SkyLight/SLS mínimo, aislado en Infrastructure | Topología runtime + binding posicional | Requiere pruebas por display | Requiere pruebas globales | Experimental, no implementado |
+| MODE C-public | Atajos Mission Control + `CGEvent` | — | — | — | Deshabilitado |
+| MODE C-native | SkyLight/SLS mínimo, aislado en Infrastructure | Topología runtime + binding posicional | — | — | Solo read-only; sin activación |
 
-No se selecciona todavía un backend nativo como predeterminado. SIP se mantiene
-completamente habilitado en la investigación. La integración privada, si algún
-día se implementa, debe requerir opt-in explícito, ser read-only inicialmente,
-no modificar Spaces estructuralmente y mantener el backend lógico como
-fallback.
+No se selecciona un backend nativo de mutación como predeterminado. SIP se
+mantiene completamente habilitado. La integración privada actual solo lee la
+topología, muestra un binding posicional temporal en la UI y reporta errores;
+no activa, crea, elimina, reordena ni mueve Spaces o ventanas.
 
 ## Fuentes
 

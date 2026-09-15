@@ -29,7 +29,6 @@ final class WorkspaceApplicationService: ObservableObject {
 
     @Published private(set) var workspaceManager = WorkspaceManager()
     @Published private(set) var experimentalWorkspaceModeEnabled = false
-    @Published private(set) var experimentalNativeSpacesEnabled = false
     @Published private(set) var workspaceSwitchResult: WorkspaceSwitchResult?
     @Published private(set) var workspaceSwitchState: WorkspaceSwitchState = .idle
     @Published private(set) var workspaceTopologyChanged = false
@@ -40,12 +39,13 @@ final class WorkspaceApplicationService: ObservableObject {
     @Published private(set) var actionStatus: String?
     @Published private(set) var restoreReport: WindowRestoreReport?
     @Published private(set) var focusedWindowState: FocusedWindowState = .none
+    @Published private(set) var nativeSpaceTopology: NativeSpaceTopology?
+    @Published private(set) var nativeSpaceReadStatus = "Native Spaces not refreshed"
 
     let windowDiscovery: any WindowDiscovering
     let focusedWindowProvider: any FocusedWindowProviding
     let activationStrategyProvider: any VirtualSpaceActivationStrategyProviding
     let nativeSpacesProvider: any NativeSpacesProviding
-    let nativeSpacesController: any NativeSpacesControlling
     let windowController: any WindowControlling
     let displayProvider: any DisplayTopologyProviding
     let permissionManager: any AccessibilityChecking
@@ -73,8 +73,7 @@ final class WorkspaceApplicationService: ObservableObject {
             workspaceEngine: WorkspaceSwitchEngine(),
             restorationCoordinator: SessionRestorationCoordinator(),
             activationStrategyProvider: LogicalVirtualSpaceActivationAdapter(),
-            nativeSpacesProvider: SkyLightNativeSpacesProvider(),
-            nativeSpacesController: NativeSpacesController()
+            nativeSpacesProvider: SkyLightNativeSpacesProvider()
         )
     }
 
@@ -90,14 +89,12 @@ final class WorkspaceApplicationService: ObservableObject {
         workspaceEngine: WorkspaceSwitchEngine,
         restorationCoordinator: SessionRestorationCoordinator,
         activationStrategyProvider: any VirtualSpaceActivationStrategyProviding = LogicalVirtualSpaceActivationAdapter(),
-        nativeSpacesProvider: any NativeSpacesProviding = SkyLightNativeSpacesProvider(),
-        nativeSpacesController: any NativeSpacesControlling = NativeSpacesController()
+        nativeSpacesProvider: any NativeSpacesProviding = SkyLightNativeSpacesProvider()
     ) {
         self.windowDiscovery = windowDiscovery
         self.focusedWindowProvider = focusedWindowProvider
         self.activationStrategyProvider = activationStrategyProvider
         self.nativeSpacesProvider = nativeSpacesProvider
-        self.nativeSpacesController = nativeSpacesController
         self.windowController = windowController
         self.displayProvider = displayProvider
         self.permissionManager = permissionManager
@@ -118,6 +115,7 @@ final class WorkspaceApplicationService: ObservableObject {
         let previousDisplays = displays
         accessibilityGranted = permissionManager.isTrusted
         displays = displayProvider.displays()
+        refreshNativeSpaceTopology()
 
         if hasCompletedInitialRefresh && !previousDisplays.isEmpty && previousDisplays != displays {
             workspaceTopologyChanged = true
@@ -163,6 +161,21 @@ final class WorkspaceApplicationService: ObservableObject {
         }
         lastRefresh = Date()
         hasCompletedInitialRefresh = true
+    }
+
+    func refreshNativeSpaceTopology() {
+        switch nativeSpacesProvider.readTopology() {
+        case let .success(topology):
+            nativeSpaceTopology = topology
+            let count = topology.spaces.filter { $0.kind == .userDesktop }.count
+            nativeSpaceReadStatus = "Detected \(count) ordinary native Space(s) across \(topology.displays.count) display(s) · separate Spaces: \(topology.separateSpaces ? "ON" : "OFF")"
+        case let .failure(error):
+            nativeSpaceTopology = nil
+            switch error {
+            case let .unavailable(message), let .malformedData(message):
+                nativeSpaceReadStatus = "Native Space read failed: \(message)"
+            }
+        }
     }
 
     // MARK: - Focused Window Quick Actions
@@ -450,9 +463,7 @@ final class WorkspaceApplicationService: ObservableObject {
             actionStatus = "That desktop no longer exists."
             return
         }
-        let mode: VirtualSpaceActivationMode = experimentalNativeSpacesEnabled
-            ? .nativeSpacesExperimental
-            : (experimentalWorkspaceModeEnabled ? .managedWindows : .logicalOnly)
+        let mode: VirtualSpaceActivationMode = experimentalWorkspaceModeEnabled ? .managedWindows : .logicalOnly
         switch activationStrategyProvider.strategy(for: mode) {
         case .managedWindowSwitch:
             switchWorkspace(to: id)
@@ -460,38 +471,6 @@ final class WorkspaceApplicationService: ObservableObject {
             _ = workspaceManager.activate(id)
             persistAuthoritativeState()
             actionStatus = "Activated \(workspaceName(id)) in the logical desktop model."
-        case .nativeSpacesExperimental:
-            activateNativeWorkspace(id)
-        }
-    }
-
-    private func activateNativeWorkspace(_ id: WorkspaceID) {
-        guard let position = workspaceManager.workspaceOrder.firstIndex(of: id).map({ $0 + 1 }) else { return }
-        guard case let .success(topology) = nativeSpacesProvider.readTopology() else {
-            actionStatus = "Native Spaces topology is unavailable; no logical-only activation was performed."
-            return
-        }
-        switch nativeSpacesController.activate(virtualPosition: position, topology: topology) {
-        case .activated:
-            _ = workspaceManager.activate(id)
-            persistAuthoritativeState()
-            actionStatus = "Activated native macOS Desktop \(position) for \(workspaceName(id))."
-        case let .unavailable(message), let .failed(message):
-            actionStatus = "Native activation failed: \(message)"
-        }
-    }
-
-    func setExperimentalNativeSpacesEnabled(_ enabled: Bool) {
-        if enabled {
-            guard accessibilityGranted else {
-                actionStatus = "Accessibility permission is required for native Space activation."
-                return
-            }
-            experimentalNativeSpacesEnabled = true
-            actionStatus = "Experimental Native Spaces enabled. Existing macOS Spaces will be used; no Spaces will be created."
-        } else {
-            experimentalNativeSpacesEnabled = false
-            actionStatus = "Experimental Native Spaces disabled."
         }
     }
 

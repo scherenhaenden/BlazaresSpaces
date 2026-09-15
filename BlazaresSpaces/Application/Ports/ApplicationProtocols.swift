@@ -22,27 +22,15 @@ protocol FocusedWindowProviding: Sendable {
 enum VirtualSpaceActivationMode: Equatable, Sendable {
     case logicalOnly
     case managedWindows
-    case nativeSpacesExperimental
 }
 
 enum VirtualSpaceActivationStrategy: Equatable, Sendable {
     case logicalOnly
     case managedWindowSwitch
-    case nativeSpacesExperimental
 }
 
 protocol VirtualSpaceActivationStrategyProviding: Sendable {
     func strategy(for mode: VirtualSpaceActivationMode) -> VirtualSpaceActivationStrategy
-}
-
-enum NativeSpaceActivationResult: Equatable, Sendable {
-    case activated
-    case unavailable(String)
-    case failed(String)
-}
-
-protocol NativeSpacesControlling: Sendable {
-    nonisolated func activate(virtualPosition: Int, topology: NativeSpaceTopology) -> NativeSpaceActivationResult
 }
 
 struct LogicalVirtualSpaceActivationAdapter: VirtualSpaceActivationStrategyProviding {
@@ -54,8 +42,6 @@ struct LogicalVirtualSpaceActivationAdapter: VirtualSpaceActivationStrategyProvi
             return .logicalOnly
         case .managedWindows:
             return .managedWindowSwitch
-        case .nativeSpacesExperimental:
-            return .nativeSpacesExperimental
         }
     }
 }
