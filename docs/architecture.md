@@ -8,6 +8,8 @@
 - **Application/UI:** `DiagnosticsViewModel` coordinates refreshes on the main actor. SwiftUI only renders state and invokes explicit actions.
 - **Window Control Lab:** `AXWindowController` is scoped to the current process and the exact `Window Control Lab` title. `WindowControlLabViewModel` exposes explicit test actions only; it has no workspace, hiding, or external-window behavior.
 - **Snapshots:** `WorkspaceSnapshot` and `WorkspaceSnapshotStore` hold an in-memory read-only capture. `DiagnosticsViewModel.captureAllWindows()` re-discovers external windows and never writes AX attributes.
+- **External test authorization:** `WindowManagementPolicy` excludes conservative application defaults. `WindowAuthorization` turns one explicitly selected discovered snapshot into an `AuthorizedExternalWindow`; discovery itself never creates authorization.
+- **External mutation:** `AXExternalWindowController` accepts only an authorized token, requires a usable AX runtime identifier, re-locates the exact PID/bundle/AX identifier before every operation, writes size then position, and reads the resulting frame for classification.
 
 The app sandbox is disabled because sandboxed processes cannot serve as a desktop-wide Accessibility client. No private entitlement or API is used.
 
@@ -28,10 +30,14 @@ CoreGraphics/AX global coordinates use a top-left origin and may be negative for
 
 ## Safe mutation boundary
 
-The only write path in this iteration is `AXWindowController`, and its process identifier defaults to BlazaresSpaces itself. It resolves exactly one AX window by the fixed lab title before every operation. There is no API that accepts an arbitrary external application or window. Move, resize, and restore are explicit button actions in a separately opened lab window.
+The internal lab write path is `AXWindowController`, and its process identifier defaults to BlazaresSpaces itself. It resolves exactly one AX window by the fixed lab title before every operation. There is no API that accepts an arbitrary application or window for the lab. Move, resize, and restore are explicit button actions in a separately opened lab window.
+
+External writes are a separate path and require explicit user selection. `AXExternalWindowController` does not accept `[WindowSnapshot]`; each operation receives one `AuthorizedExternalWindow`. It will not fall back to enumeration order, title matching, or another window if the selected runtime identity disappears. Conservative application and bundle exclusions are visible as `NEVER MANAGE` entries.
+
+Restoration uses size-then-position as the current experiment order, then reads the actual frame. A result is classified as exact, adjusted, missing, changed, excluded, unsupported, permission denied, or failed. This is an empirical POC choice, not a universal macOS guarantee.
 
 Fullscreen and minimized values remain diagnostic fields only. They are not mutated or restored because support is not yet proven.
 
 ## Next boundary
 
-The next iteration should validate the lab on real monitor topologies and applications, then add a separate restorable snapshot description. Any future external mutation must remain user initiated, report each failure, and be tested manually before workspace switching is considered.
+The next iteration should validate external selection and restoration on real monitor topologies and applications. Any future external mutation must remain user initiated, report each failure, and be tested manually before workspace switching is considered. See [window-deactivation.md](window-deactivation.md) for strategies that remain intentionally unimplemented.

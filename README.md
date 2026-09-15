@@ -32,11 +32,13 @@ The app can:
 - show application metadata, window geometry/state, and the display with the largest overlap;
 - report discovery failures without terminating or mutating other applications.
 
-The inspector remains read-only for every external application. This iteration also includes an explicitly opened **Window Control Lab**: a dedicated BlazaresSpaces-owned window with Capture, Move, Resize, and Restore controls. Those controls are hard-scoped to that test window and never target Citrix or any other existing application.
+The inspector remains read-only for every external application. This iteration also includes an explicitly opened **Window Control Lab**: a dedicated BlazaresSpaces-owned window with Capture, Move, Resize, and Restore controls. Those controls are hard-scoped to that test window and never target unselected applications.
 
 The inspector can also capture an in-memory, read-only snapshot of all currently discovered external windows. Snapshots are diagnostic only: they are not persisted and cannot restore or switch workspaces yet.
 
 Window titles are hidden by default in the inspector and can be revealed explicitly for local debugging because they may contain sensitive work information.
+
+The external test mode is opt-in per window. A discovered window is never mutable by default. The user must explicitly select one eligible window or a temporary test set. Conservative application exclusions are marked **NEVER MANAGE** by the default policy. External restore requires a usable AX runtime identifier, rechecks the exact PID/bundle/identifier, and reports the requested versus resulting frame.
 
 ## Running
 
@@ -67,6 +69,8 @@ These milestones are direction, not promises. See [the vision](docs/vision.md) a
 After granting Accessibility access, click **Window Control Lab**. Use **Capture Frame**, move or resize the lab manually, then use **Restore Captured Frame**. The explicit **Move Test Window** and **Resize Test Window** actions are limited to this window. Drag it between monitors and repeat the experiment; external applications must never move.
 
 Click **Capture Desktop Snapshot** in the inspector to record the current external desktop state in memory. It only reads AX attributes and reports the number of windows and represented displays.
+
+For an external restore experiment, select a safe disposable window with **Use as Capture/Restore Test Window**, click **Capture Selected Window**, manually move or resize that window, then click **Restore Selected Window**. The UI reports exact, adjusted, missing, excluded, unsupported, permission-denied, and failed outcomes. There is no automatic external move action.
 
 ### Manual verification checklist
 

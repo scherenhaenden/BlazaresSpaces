@@ -15,6 +15,27 @@ struct BlazaresSpacesTests {
         DisplaySnapshot(id: id, name: "Display \(id)", frame: frame, visibleFrame: frame, backingScale: 1, isMain: id == 1)
     }
 
+    private func window(
+        app: String = "Safe App",
+        bundle: String? = "com.example.safe",
+        identifier: String? = "window-1",
+        pid: pid_t = 42,
+        frame: CGRect = CGRect(x: 10, y: 20, width: 400, height: 300)
+    ) -> WindowSnapshot {
+        WindowSnapshot(
+            runtimeIdentity: WindowRuntimeIdentity(processIdentifier: pid, accessibilityIdentifier: identifier, enumerationIndex: 0),
+            applicationName: app,
+            bundleIdentifier: bundle,
+            title: nil,
+            role: "AXWindow",
+            subrole: nil,
+            frame: frame,
+            isMinimized: nil,
+            isFullscreen: nil,
+            displayID: 1
+        )
+    }
+
     @Test func mapsWindowToDisplayWithLargestIntersection() {
         let displays = [
             display(id: 1, frame: CGRect(x: 0, y: 0, width: 1000, height: 800)),
@@ -100,5 +121,78 @@ struct BlazaresSpacesTests {
         #expect(store.current?.capturedAt == first.capturedAt)
         store.replace(with: second)
         #expect(store.current?.capturedAt == second.capturedAt)
+    }
+
+    @Test func defaultPolicyExcludesCitrixByBundleAndName() {
+        let policy = WindowManagementPolicy.developmentDefaults
+        #expect(policy.exclusionReason(for: window(app: "Citrix Viewer", bundle: "com.citrix.receiver")) != nil)
+        #expect(policy.exclusionReason(for: window(app: "Citrix Workspace", bundle: "com.other.client")) != nil)
+        #expect(policy.exclusionReason(for: window()) == nil)
+    }
+
+    @Test func externalAuthorizationRequiresAXRuntimeIdentifier() {
+        let result = WindowAuthorization.authorize(window(identifier: nil), policy: .developmentDefaults)
+        let isExpectedFailure: Bool
+
+        if case .failure(.missingRuntimeIdentifier) = result {
+            isExpectedFailure = true
+        } else {
+            isExpectedFailure = false
+        }
+        #expect(isExpectedFailure)
+    }
+
+    @Test func externalAuthorizationRejectsExcludedWindow() {
+        let result = WindowAuthorization.authorize(
+            window(app: "Citrix Workspace", bundle: "com.citrix.workspace"),
+            policy: .developmentDefaults
+        )
+        let isExpectedFailure: Bool
+
+        if case .failure(.excluded) = result {
+            isExpectedFailure = true
+        } else {
+            isExpectedFailure = false
+        }
+        #expect(isExpectedFailure)
+    }
+
+    @Test func restoreReportCountsPartialFailuresWithoutStopping() {
+        let first = WindowRestoreResult(
+            id: window(identifier: "one").runtimeIdentity,
+            applicationName: "Safe App",
+            processIdentifier: 42,
+            requestedFrame: window(identifier: "one").frame,
+            actualFrame: window(identifier: "one").frame,
+            status: .restoredExactly,
+            message: "ok"
+        )
+        let second = WindowRestoreResult(
+            id: window(identifier: "two").runtimeIdentity,
+            applicationName: "Closed App",
+            processIdentifier: 43,
+            requestedFrame: window(identifier: "two").frame,
+            actualFrame: nil,
+            status: .windowMissing,
+            message: "missing"
+        )
+
+        let report = WindowRestoreReport(results: [first, second])
+        #expect(report.requestedCount == 2)
+        #expect(report.exactCount == 1)
+        #expect(report.failedCount == 1)
+    }
+
+    @Test func frameComparisonClassifiesTolerance() {
+        let requested = CGRect(x: 10, y: 20, width: 400, height: 300)
+        #expect(WindowFrameComparison.isWithinTolerance(requested: requested, actual: requested.offsetBy(dx: 1, dy: -1), tolerance: 2))
+        #expect(!WindowFrameComparison.isWithinTolerance(requested: requested, actual: requested.offsetBy(dx: 3, dy: 0), tolerance: 2))
+    }
+
+    @Test func runtimeIdentityDistinguishesTwoWindowsFromSameApplication() {
+        let first = window(identifier: "window-a")
+        let second = window(identifier: "window-b")
+        #expect(first.runtimeIdentity.processIdentifier == second.runtimeIdentity.processIdentifier)
+        #expect(first.runtimeIdentity.accessibilityIdentifier != second.runtimeIdentity.accessibilityIdentifier)
     }
 }
