@@ -33,7 +33,9 @@ struct DockSwipeSpaceActivator: Sendable {
     @discardableResult
     nonisolated func performSwitchGesture(direction: NativeSpaceSwipeDirection, velocity: Double = 2_000) -> Bool {
         let sign = direction == .right ? 1.0 : -1.0
-        let progress = sign * Double.leastNonzeroMagnitude
+        // C's FLT_TRUE_MIN is the minimum Float32 subnormal, not Double's
+        // smaller subnormal. Preserve the InstantSpaceSwitcher magnitude.
+        let progress = sign * Double(Float.leastNonzeroMagnitude)
         let signedVelocity = sign * velocity
         return post(phase: Value.began, progress: progress, velocity: signedVelocity)
             && post(phase: Value.changed, progress: progress, velocity: signedVelocity)
