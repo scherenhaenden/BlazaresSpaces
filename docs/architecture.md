@@ -13,6 +13,9 @@
 - **Logical workspace domain:** `WorkspaceManager` owns a dynamic ordered collection of logical workspaces and an in-memory many-to-many window relationship. `WorkspaceMember.workspaceIDs` supports one or many memberships; `visibleOnAllWorkspaces` is a separate sticky semantic so future workspaces include the window without copying a fixed list forever.
 - **Workspace controller:** `WorkspaceSwitchEngine` compares the source and target membership views. A source window is parked only when it is source-only and non-sticky. A shared or sticky window remains visible and keeps its current geometry. Target-only windows restore their saved logical frame. The first implementation uses one global geometry per shared window; workspace-specific geometry remains a later extension.
 - **Experimental parking:** `ParkingPositionCalculator` derives deterministic parking slots from the union of connected display frames. `WorkspaceMember.logicalSnapshot` is never replaced by the temporary `parkedFrame`. All operations are in memory, explicit, and reported through `WorkspaceSwitchResult` metrics and per-window outcomes.
+- **Daily-driver controller:** `DiagnosticsViewModel` now exposes the desktop manager, explicit Manage/Stop Managing actions, next/previous navigation, menu-bar commands, and configurable public AppKit key monitors. `WorkspaceSwitchRequestQueue` serializes requests with latest-target semantics so rapid commands cannot create overlapping AX pipelines.
+- **Configuration boundary:** `WorkspaceConfigurationStore` persists only desktop names/order/active desktop; `GlobalShortcutConfigurationStore` persists shortcut preferences. Runtime AX identities, window membership, frames, and parked state are never persisted across launches.
+- **Lifecycle safety:** the controller listens for screen-parameter changes and Accessibility loss, pauses switching when assumptions become unsafe, and attempts recovery of windows parked during the current process on clean termination. Force-kill and crash recovery are intentionally not claimed.
 
 The app sandbox is disabled because sandboxed processes cannot serve as a desktop-wide Accessibility client. No private entitlement or API is used.
 
@@ -45,7 +48,9 @@ Fullscreen and minimized values remain diagnostic fields only. They are not muta
 
 Workspace creation, rename, activation, and deletion operate only on logical containers. Deletion requires an explicit destination when an exclusive member would otherwise become orphaned; no window is closed or destroyed. A newly discovered window is never adopted automatically. Assignment is available only after explicit external-window authorization, and the UI distinguishes **Move to workspace**, **Add to workspace**, and **Show on all workspaces**.
 
-Minimized and fullscreen windows are conservatively rejected by the experimental write path. Native macOS Spaces, private WindowServer APIs, hotkeys, persistence, and crash recovery remain out of scope for 0.0.3.
+Minimized and fullscreen windows are conservatively rejected by the write path. Native macOS Spaces, private WindowServer APIs, tiling, automatic adoption, persistent runtime identities, and crash recovery remain out of scope. Keyboard shortcuts use public AppKit event monitors, require Accessibility before registration, and can be disabled; they never enroll or mutate unmanaged windows.
+
+Switching wraps from the last desktop to the first and from the first to the last for Next/Previous. Desktop order controls shortcut indexes and is persisted as configuration. Deleting an active desktop requires an explicit replacement; deleting a desktop with exclusively assigned windows also requires an explicit destination. The operation changes membership/container state only and never closes windows.
 
 ## Next boundary
 

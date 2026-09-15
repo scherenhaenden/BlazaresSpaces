@@ -9,11 +9,22 @@ import SwiftUI
 
 @main
 struct BlazaresSpacesApp: App {
+    @StateObject private var model = DiagnosticsViewModel()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(model)
         }
         .defaultSize(width: 900, height: 700)
+
+        MenuBarExtra {
+            MenuBarControllerView()
+                .environmentObject(model)
+        } label: {
+            Label(model.workspaceName(model.workspaceManager.activeWorkspaceID), systemImage: "square.3.layers.3d")
+        }
+        .menuBarExtraStyle(.menu)
 
         Window(WindowControlLabConstants.title, id: "window-control-lab") {
             WindowControlLabView()
