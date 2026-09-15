@@ -25,6 +25,26 @@ struct WindowManagementPolicy: Equatable, Sendable {
     }
 }
 
+struct WindowManagementPolicyStore {
+    private let namesKey = "BlazaresSpaces.excludedApplicationNames.v1"
+    private let prefixesKey = "BlazaresSpaces.excludedBundlePrefixes.v1"
+
+    func load() -> WindowManagementPolicy {
+        let defaults = UserDefaults.standard
+        guard let names = defaults.stringArray(forKey: namesKey),
+              let prefixes = defaults.stringArray(forKey: prefixesKey) else {
+            return .developmentDefaults
+        }
+        return WindowManagementPolicy(excludedBundleIdentifierPrefixes: prefixes, excludedApplicationNames: names)
+    }
+
+    func save(_ policy: WindowManagementPolicy) {
+        let defaults = UserDefaults.standard
+        defaults.set(policy.excludedApplicationNames, forKey: namesKey)
+        defaults.set(policy.excludedBundleIdentifierPrefixes, forKey: prefixesKey)
+    }
+}
+
 struct AuthorizedExternalWindow: Equatable, Sendable {
     let snapshot: WindowSnapshot
 

@@ -53,7 +53,7 @@ final class WorkspaceApplicationService: ObservableObject {
             permissionManager: AccessibilityPermissionManager(),
             stateStore: AtomicJSONWorkspaceStateStore(),
             shortcutManager: GlobalShortcutManager(),
-            managementPolicy: .developmentDefaults,
+            managementPolicy: WindowManagementPolicyStore().load(),
             workspaceEngine: WorkspaceSwitchEngine(),
             restorationCoordinator: SessionRestorationCoordinator()
         )
@@ -423,6 +423,7 @@ final class WorkspaceApplicationService: ObservableObject {
     func updateManagementExclusions(applicationNames: [String], bundlePrefixes: [String]) {
         managementPolicy.excludedApplicationNames = normalizedUnique(applicationNames)
         managementPolicy.excludedBundleIdentifierPrefixes = normalizedUnique(bundlePrefixes)
+        WindowManagementPolicyStore().save(managementPolicy)
         actionStatus = "Safety exclusions updated. Refresh to apply them to discovered windows."
     }
 
