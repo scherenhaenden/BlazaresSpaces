@@ -20,9 +20,10 @@ struct AXFocusedWindowProvider: FocusedWindowProviding {
             kAXFocusedWindowAttribute as CFString,
             &rawWindow
         ) == .success,
-        let element = rawWindow as? AXUIElement,
-        stringAttribute(kAXRoleAttribute, of: element) == kAXWindowRole,
-        let frame = frame(of: element) else { return nil }
+        rawWindow != nil,
+        let frame = frame(of: rawWindow as! AXUIElement) else { return nil }
+        let element = rawWindow as! AXUIElement
+        guard stringAttribute(kAXRoleAttribute, of: element) == kAXWindowRole else { return nil }
 
         let name = application.localizedName ?? application.bundleIdentifier ?? "Unknown application"
         let identity = WindowRuntimeIdentity(
@@ -61,8 +62,10 @@ struct AXFocusedWindowProvider: FocusedWindowProviding {
     }
 
     private func frame(of element: AXUIElement) -> CGRect? {
-        guard let position = attribute(kAXPositionAttribute, of: element) as? AXValue,
-              let size = attribute(kAXSizeAttribute, of: element) as? AXValue else { return nil }
+        guard let positionRaw = attribute(kAXPositionAttribute, of: element),
+              let sizeRaw = attribute(kAXSizeAttribute, of: element) else { return nil }
+        let position = positionRaw as! AXValue
+        let size = sizeRaw as! AXValue
         var point = CGPoint.zero
         var dimensions = CGSize.zero
         guard AXValueGetType(position) == .cgPoint,
