@@ -14,10 +14,10 @@ struct BlazaresSpacesApp: App {
 
     var body: some Scene {
         WindowGroup("BlazaresSpaces", id: "main") {
-            DailyDriverDashboardView()
+            BlazaresSpacesHomeView()
                 .environmentObject(model)
         }
-        .defaultSize(width: 980, height: 760)
+        .defaultSize(width: 1040, height: 700)
 
         MenuBarExtra {
             CompactMenuBarView()
