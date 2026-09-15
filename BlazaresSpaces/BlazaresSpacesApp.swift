@@ -14,8 +14,11 @@ struct BlazaresSpacesApp: App {
 
     var body: some Scene {
         WindowGroup("BlazaresSpaces", id: "main") {
-            BlazaresSpacesHomeView()
-                .environmentObject(model)
+            VStack(spacing: 0) {
+                AccessibilityPermissionBanner()
+                BlazaresSpacesHomeView()
+            }
+            .environmentObject(model)
         }
         .defaultSize(width: 1040, height: 700)
 
