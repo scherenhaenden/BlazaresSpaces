@@ -114,6 +114,22 @@ final class WorkspaceApplicationService: ObservableObject {
             workspaceTopologyChanged = true
             workspaceSwitchState = .degraded(message: "Display topology changed; switching is paused until recovery or refresh validation.")
             actionStatus = "Display topology changed. Review the topology and use Recover Managed Windows before switching again."
+        } else if hasCompletedInitialRefresh && workspaceTopologyChanged {
+            // A second stable read validates that the display configuration has
+            // settled. This only clears the safety latch when no managed window
+            // is parked; it never performs window mutation.
+            let hasParkedWindows = workspaceManager.allMembers.contains(where: \.isParked)
+            let topologyPause: Bool = {
+                guard case let .degraded(message) = workspaceSwitchState else { return false }
+                return message.localizedCaseInsensitiveContains("topology")
+            }()
+            if topologyPause && !hasParkedWindows {
+                workspaceTopologyChanged = false
+                if workspaceSwitchState.isDegraded {
+                    workspaceSwitchState = .idle
+                }
+                actionStatus = "Display topology validated. Switching is available again."
+            }
         }
 
         if accessibilityGranted {
@@ -659,8 +675,11 @@ final class WorkspaceApplicationService: ObservableObject {
         }
         let members = workspaceManager.allMembers.filter(\.isParked)
         guard !members.isEmpty else {
+            if workspaceTopologyChanged {
+                refresh()
+            }
             actionStatus = "No managed windows require recovery."
-            return true
+            return !workspaceTopologyChanged
         }
         workspaceSwitchState = .recovering
         let results = members.map { member -> WorkspaceWindowResult in
