@@ -49,9 +49,9 @@ struct DailyDriverDashboardView: View {
             Spacer()
 
             Button("Previous") { model.activatePreviousWorkspace() }
-                .disabled(!model.experimentalWorkspaceModeEnabled)
+                .disabled(!model.experimentalWorkspaceModeEnabled && !model.experimentalNativeSpacesEnabled)
             Button("Next") { model.activateNextWorkspace() }
-                .disabled(!model.experimentalWorkspaceModeEnabled)
+                .disabled(!model.experimentalWorkspaceModeEnabled && !model.experimentalNativeSpacesEnabled)
             Button("Refresh") { model.refresh() }
                 .keyboardShortcut("r", modifiers: .command)
         }
@@ -262,7 +262,7 @@ struct DailyDriverDashboardView: View {
 
             if !isActive {
                 Button("Activate") { model.activateWorkspace(id) }
-                    .disabled(!model.experimentalWorkspaceModeEnabled)
+                    .disabled(!model.experimentalWorkspaceModeEnabled && !model.experimentalNativeSpacesEnabled)
             } else {
                 Text("Active")
                     .font(.caption.weight(.semibold))
@@ -445,6 +445,17 @@ struct DailyDriverDashboardView: View {
                     Text("Last switch: processed \(result.metrics.windowsProcessed), parked \(result.parkedCount), restored \(result.restoredCount), failed \(result.failedCount), total \(result.metrics.totalMilliseconds.formatted()) ms")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                if !model.issues.isEmpty {
+                    Text("Accessibility discovery details")
+                        .font(.headline)
+                    ForEach(model.issues) { issue in
+                        Text("• \(issue.applicationName) (PID \(issue.processIdentifier)): \(issue.message)")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             .padding(.top, 8)
