@@ -42,6 +42,7 @@ final class WorkspaceApplicationService: ObservableObject {
 
     private var persistedState: PersistedStateV1?
     private var switchQueue = WorkspaceSwitchRequestQueue()
+    private var hasCompletedInitialRefresh = false
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BlazaresSpaces", category: "ApplicationService")
 
     convenience init() {
@@ -91,7 +92,7 @@ final class WorkspaceApplicationService: ObservableObject {
         accessibilityGranted = permissionManager.isTrusted
         displays = displayProvider.displays()
 
-        if !previousDisplays.isEmpty && previousDisplays != displays {
+        if hasCompletedInitialRefresh && !previousDisplays.isEmpty && previousDisplays != displays {
             workspaceTopologyChanged = true
             workspaceSwitchState = .degraded(message: "Display topology changed; switching is paused until recovery or refresh validation.")
             actionStatus = "Display topology changed. Review the topology and use Recover Managed Windows before switching again."
@@ -116,9 +117,14 @@ final class WorkspaceApplicationService: ObservableObject {
             startGlobalShortcuts()
         }
         lastRefresh = Date()
+        hasCompletedInitialRefresh = true
     }
 
     func handleDisplayTopologyChange() {
+        guard hasCompletedInitialRefresh else {
+            refresh()
+            return
+        }
         workspaceTopologyChanged = true
         workspaceSwitchState = .degraded(message: "Display topology changed.")
         refresh()

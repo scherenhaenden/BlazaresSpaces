@@ -3,7 +3,7 @@ import Foundation
 
 /// Identity usable only while inspecting the current AX enumeration. macOS does not
 /// expose a universal public window identifier that survives application restarts.
-struct WindowRuntimeIdentity: Hashable, Sendable {
+nonisolated struct WindowRuntimeIdentity: Hashable, Sendable {
     let processIdentifier: pid_t
     let accessibilityIdentifier: String?
     let enumerationIndex: Int

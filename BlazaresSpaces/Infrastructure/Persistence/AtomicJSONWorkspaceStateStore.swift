@@ -31,17 +31,15 @@ actor AtomicJSONWorkspaceStateStore: WorkspaceStatePersisting {
     let fileURL: URL
     let lastValidBackupURL: URL
 
-    private let fileManager: FileManager
+    private let fileManager = FileManager.default
     private let encoder: JSONEncoder
     private let migrator: PersistedStateMigrator
     private let validator: PersistedStateValidator
 
-    init(
-        fileURL: URL = AtomicJSONWorkspaceStateStore.defaultFileURL()
-    ) {
-        self.fileURL = fileURL
-        self.lastValidBackupURL = fileURL.deletingLastPathComponent().appendingPathComponent("state.last-valid.json")
-        self.fileManager = .default
+    init(fileURL: URL? = nil) {
+        let resolvedURL = fileURL ?? Self.defaultFileURL()
+        self.fileURL = resolvedURL
+        self.lastValidBackupURL = resolvedURL.deletingLastPathComponent().appendingPathComponent("state.last-valid.json")
         self.encoder = JSONEncoder()
         self.migrator = PersistedStateMigrator()
         self.validator = PersistedStateValidator()
@@ -107,7 +105,7 @@ actor AtomicJSONWorkspaceStateStore: WorkspaceStatePersisting {
         }
     }
 
-    static func defaultFileURL(fileManager: FileManager = .default) -> URL {
+    nonisolated static func defaultFileURL(fileManager: FileManager = .default) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         return base
