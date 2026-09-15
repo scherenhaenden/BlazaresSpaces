@@ -45,7 +45,9 @@ final class DiagnosticsViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak appService] _ in
-            appService?.handleDisplayTopologyChange()
+            Task { @MainActor [weak appService] in
+                appService?.handleDisplayTopologyChange()
+            }
         }
 
         terminationObserver = NotificationCenter.default.addObserver(
@@ -53,7 +55,9 @@ final class DiagnosticsViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak appService] _ in
-            appService?.recoverForTermination()
+            Task { @MainActor [weak appService] in
+                appService?.recoverForTermination()
+            }
         }
     }
 
