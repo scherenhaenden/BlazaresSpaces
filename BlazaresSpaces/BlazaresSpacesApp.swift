@@ -9,6 +9,7 @@ import SwiftUI
 
 @main
 struct BlazaresSpacesApp: App {
+    @NSApplicationDelegateAdaptor(BlazaresSpacesAppDelegate.self) private var appDelegate
     @StateObject private var model = DiagnosticsViewModel()
 
     var body: some Scene {
@@ -24,7 +25,7 @@ struct BlazaresSpacesApp: App {
         } label: {
             Label(model.workspaceName(model.workspaceManager.activeWorkspaceID), systemImage: "square.3.layers.3d")
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
 
         Window("BlazaresSpaces Inspector", id: "inspector") {
             ContentView()
