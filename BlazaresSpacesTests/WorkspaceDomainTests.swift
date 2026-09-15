@@ -183,4 +183,24 @@ struct WorkspaceDomainTests {
         #expect(decoded == geometry)
         #expect(decoded.absolute.cgRect == CGRect(x: -1200, y: 100, width: 900, height: 700))
     }
+
+    @Test func persistedWorkspaceOrderIsRestoredFromWorkspaceOrderField() {
+        let third = WorkspaceID("workspace-3")
+        let state = PersistedStateV1(
+            workspaces: [
+                .init(id: WorkspaceID.workspace1.rawValue, name: "One"),
+                .init(id: WorkspaceID.workspace2.rawValue, name: "Two"),
+                .init(id: third.rawValue, name: "Three")
+            ],
+            workspaceOrder: [third.rawValue, WorkspaceID.workspace1.rawValue, WorkspaceID.workspace2.rawValue],
+            activeWorkspaceID: third.rawValue,
+            shortcuts: .init(modifierRawValue: 0, desktopKeyCodes: [], nextKeyCode: 0, previousKeyCode: 0),
+            preferences: .init(),
+            managedWindows: []
+        )
+        var manager = WorkspaceManager()
+        manager.apply(configuration: .init(persisted: state))
+        #expect(manager.workspaceOrder == [third, .workspace1, .workspace2])
+        #expect(manager.activeWorkspaceID == third)
+    }
 }

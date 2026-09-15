@@ -154,6 +154,10 @@ final class DiagnosticsViewModel: ObservableObject {
         service.isManaged(window)
     }
 
+    func isWindowSticky(_ window: WindowSnapshot) -> Bool {
+        workspaceManager.member(for: window.runtimeIdentity)?.visibleOnAllWorkspaces ?? false
+    }
+
     func manageWindow(_ window: WindowSnapshot) {
         service.manageWindow(window)
     }

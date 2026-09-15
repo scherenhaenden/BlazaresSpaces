@@ -37,12 +37,13 @@ struct WorkspaceSwitchRequestQueue: Equatable, Sendable {
         }
     }
 
-    mutating func finish(degradedMessage: String? = nil) -> WorkspaceID? {
-        if let pendingTarget {
+    mutating func finish(completedTarget: WorkspaceID? = nil, degradedMessage: String? = nil) -> WorkspaceID? {
+        if degradedMessage == nil, let pendingTarget, pendingTarget != completedTarget {
             self.pendingTarget = nil
             state = .switching(target: pendingTarget)
             return pendingTarget
         }
+        self.pendingTarget = nil
         state = degradedMessage.map { .degraded(message: $0) } ?? .idle
         return nil
     }

@@ -321,6 +321,10 @@ final class WorkspaceApplicationService: ObservableObject {
             actionStatus = "Switching is paused because display topology changed. Recover managed windows first."
             return
         }
+        guard !workspaceSwitchState.isDegraded else {
+            actionStatus = "Switching is paused after a partial operation. Recover managed windows before switching again."
+            return
+        }
         let sourceID = workspaceManager.activeWorkspaceID
         guard sourceID != targetID, workspaceManager.workspaceIDs.contains(targetID) else { return }
         guard let immediate = switchQueue.request(targetID) else {
@@ -347,7 +351,10 @@ final class WorkspaceApplicationService: ObservableObject {
         actionStatus = execution.result.isDegraded
             ? "Switched to \(workspaceName(targetID)) with recoverable partial results; inspect the report below."
             : "Switched to \(workspaceName(targetID))."
-        let pending = switchQueue.finish(degradedMessage: execution.result.isDegraded ? "The last switch completed with partial results." : nil)
+        let pending = switchQueue.finish(
+            completedTarget: targetID,
+            degradedMessage: execution.result.isDegraded ? "The last switch completed with partial results." : nil
+        )
         workspaceSwitchState = switchQueue.state
         if let pending { performSwitch(to: pending) }
     }

@@ -38,6 +38,9 @@ struct DailyDriverDashboardView: View {
                 Text("Active desktop: \(model.workspaceName(model.workspaceManager.activeWorkspaceID))")
                     .font(.title3.weight(.semibold))
                     .accessibilityIdentifier("activeDesktopStatus")
+                Label(statusSummary, systemImage: statusSymbol)
+                    .font(.callout)
+                    .foregroundStyle(model.workspaceSwitchState.isDegraded ? .orange : .secondary)
             }
 
             Spacer()
@@ -110,6 +113,12 @@ struct DailyDriverDashboardView: View {
 
                 if model.workspaceTopologyChanged {
                     Label("Display topology changed. Switching is paused until recovery/validation.", systemImage: "display.trianglebadge.exclamationmark")
+                        .foregroundStyle(.orange)
+                }
+
+                if case let .degraded(message) = model.workspaceSwitchState {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
                         .foregroundStyle(.orange)
                 }
 
@@ -219,6 +228,9 @@ struct DailyDriverDashboardView: View {
                     Label("NEVER MANAGE", systemImage: "nosign")
                         .foregroundStyle(.red)
                         .help(exclusion)
+                } else if managed && model.isWindowSticky(window) {
+                    Label("Sticky · Managed", systemImage: "pin.fill")
+                        .foregroundStyle(.blue)
                 } else if managed {
                     Label("Managed", systemImage: "checkmark.shield.fill")
                         .foregroundStyle(.green)
@@ -247,8 +259,8 @@ struct DailyDriverDashboardView: View {
                             }
                         }
 
-                        Button("Show on All") {
-                            model.setWindowVisibleOnAllWorkspaces(window, visible: true)
+                        Button(model.isWindowSticky(window) ? "Remove from All Desktops" : "Show on All Desktops") {
+                            model.setWindowVisibleOnAllWorkspaces(window, visible: !model.isWindowSticky(window))
                         }
 
                         Button("Stop Managing", role: .destructive) {
@@ -345,5 +357,18 @@ struct DailyDriverDashboardView: View {
             get: { workspaceNameDrafts[id.rawValue] ?? currentName },
             set: { workspaceNameDrafts[id.rawValue] = $0 }
         )
+    }
+
+    private var statusSummary: String {
+        switch model.workspaceSwitchState {
+        case .idle: return model.experimentalWorkspaceModeEnabled ? "Desktop switching ready" : "Desktop switching disabled"
+        case .switching: return "Switching desktops…"
+        case .recovering: return "Recovering managed windows…"
+        case .degraded: return "Desktop switching paused"
+        }
+    }
+
+    private var statusSymbol: String {
+        model.workspaceSwitchState.isDegraded ? "exclamationmark.triangle.fill" : "circle.fill"
     }
 }
