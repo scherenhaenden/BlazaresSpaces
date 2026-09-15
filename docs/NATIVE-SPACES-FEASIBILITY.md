@@ -1,6 +1,6 @@
 # Native macOS Spaces feasibility
 
-Estado: investigación documental para BlazaresSpaces 0.3.0. Este documento no
+Estado: investigación abierta para BlazaresSpaces 0.3.0. Este documento no
 introduce APIs privadas ni cambia el comportamiento de producción.
 
 ## Resumen ejecutivo
@@ -15,11 +15,10 @@ Space actual, una lista pública de Spaces, ni operaciones públicas para crear,
 eliminar, seleccionar o asignar una ventana de otra aplicación a un Space
 concreto.
 
-Por tanto, **la sincronización nativa completa no es posible de forma pública,
-estable y verificable**. La decisión para 0.3.0 es **MODE B — Logical Virtual
-Spaces**: conservar el motor seguro de parking/restauración y presentar sus
-contextos como Virtual Spaces, con orden posicional y nombres definidos por el
-usuario. Los macOS Spaces siguen siendo una capa del sistema separada.
+Por tanto, **la administración nativa completa no está expuesta como API
+pública, estable y verificable**. La decisión entre MODE B y un MODE C híbrido
+queda abierta hasta investigar la activación mediante atajos de Mission Control
+y validarla físicamente, especialmente con Spaces separados desactivados.
 
 ## Matriz de capacidades públicas
 
@@ -195,11 +194,96 @@ Space concreto.
   que una pérdida de Accessibility/topología pausa la activación.
 - Probar pantalla completa, Split View, hot-plug y ventanas que rechazan AX.
 
+## Ruta adicional: activación por atajos públicos de Mission Control
+
+Esta fase investiga exclusivamente la integración con el mecanismo de usuario:
+atajos de Mission Control, `CGEvent` para publicar teclado y
+`NSWorkspace.activeSpaceDidChangeNotification` para observar una transición.
+No es una API de administración de Spaces ni expone una identidad nativa.
+
+La hipótesis de MODE C es `Virtual Space N → Switch to Desktop N`. BlazaresSpaces
+conservaría nombres, orden, membresías, exclusiones y fallback lógico; macOS
+ejecutaría el cambio físico mediante el atajo configurado por el usuario.
+`CGEventCreateKeyboardEvent` y `CGEvent.post` son APIs públicas, pero Apple no
+garantiza que un evento sintetizado active Mission Control en todos los estados
+de foco, layouts, conflictos o versiones.
+
+`NSWorkspace.activeSpaceDidChangeNotification` es pública y debe observarse en
+`NSWorkspace.shared.notificationCenter`; no tiene `userInfo` ni contiene el
+índice, nombre, display o ID destino. Confirma una transición observable, no
+que se alcanzó Desktop N.
+
+### Precondiciones y protocolo seguro
+
+Los atajos “Switch to Desktop N” deben ser habilitados y configurados por el
+usuario en System Settings. No hay API pública fiable para leer, verificar o
+cambiar esas asignaciones; la app no debe modificar preferencias globales
+silenciosamente. Control-Left/Control-Right es navegación relativa y no
+sustituye automáticamente al atajo absoluto Desktop N.
+
+Un adaptador experimental debe comprobar Accessibility y
+`NSScreen.screensHaveSeparateSpaces`, registrar el observador antes de publicar
+el evento, enviar el atajo mediante `CGEvent`, y esperar con timeout corto.
+El resultado solo puede ser `transitionObserved`, `unconfirmed` o `timedOut`,
+nunca `destinationNVerified`. Topología insegura, solicitudes concurrentes o
+timeout deben cancelar/degradar y conservar el motor lógico como fallback; no
+deben provocar parking parcial ni cambios de membresía.
+
+### Riesgos del mapeo posicional
+
+“Automatically rearrange Spaces based on most recent use” puede cambiar el
+orden y romper `Virtual Space N = Desktop N`; para probar mapping estable el
+usuario debe desactivarlo manualmente. La app no debe cambiarlo. Crear,
+eliminar o reordenar Spaces, reiniciar sesión, fullscreen, Split View y displays
+adicionales pueden introducir o desplazar Spaces. Fullscreen debe tratarse
+como una fuente de desincronización.
+
+Con **Spaces separados OFF**, el contexto global compartido es el mejor
+candidato para MODE C, pero requiere pruebas reales con varios displays. Con
+**ON**, un atajo no garantiza sincronización del mismo índice en cada display y
+MODE C no debe presentarse como soporte multi-display.
+
+### Matriz de integración y puerta A/B/C
+
+| Capacidad | Mecanismo público | Verificación | Estado |
+| --- | --- | --- | --- |
+| Activar Desktop N | Atajo configurado + `CGEvent` | Notificación, sin índice | Pendiente de prueba |
+| Observar transición | `activeSpaceDidChangeNotification` | Cambio ocurrido | Disponible, limitada |
+| Leer/configurar atajos | System Settings | No hay API fiable | Acción manual |
+| Activar con OFF | Atajo + notificación | Posible contexto global | Candidato experimental |
+| Activar con ON | Atajo + notificación | Destino por display ambiguo | No apto para promesa |
+| Crear/eliminar/mover a Space N | Mission Control/AX | No verificable | No soportado |
+
+| Modo | Activación | ON | OFF | Estado |
+| --- | --- | --- | --- | --- |
+| MODE A | Administración nativa directa | No viable | No viable | Descartado |
+| MODE B | Parking/restauración AX | Viable | Viable | Fallback determinista |
+| MODE C | Atajos `CGEvent` + fallback lógico | No prometer | Candidato a validar | No decidido |
+
+No se selecciona todavía MODE B o MODE C como estrategia predeterminada.
+La decisión queda pendiente de pruebas físicas con atajos configurados y
+ausentes, reordenamiento, fullscreen, conflictos, timeout, y Spaces OFF/ON.
+
+### Plan de validación física
+
+Con uno y dos displays, crear tres Spaces, desactivar Spaces separados y el
+reordenamiento automático, configurar Desktop 1..3, y probar cada Virtual
+Space desde la app. Confirmar visualmente la ventana esperada y registrar la
+notificación. Repetir con atajo ausente/en conflicto, solicitudes rápidas,
+cambio manual concurrente, Space eliminado, fullscreen, topología cambiada y
+Spaces separados activados. Aprobar MODE C solo si OFF conserva una
+correspondencia estable y todos los fallos producen estado incierto/degradado
+con fallback seguro.
+
+Fuentes oficiales: [CGEvent keyboard initializer](https://developer.apple.com/documentation/coregraphics/cgevent/init%28keyboardeventsource%3Avirtualkey%3Akeydown%3A%29),
+[CGEvent.post](https://developer.apple.com/documentation/coregraphics/cgevent/post%28tap%3A%29),
+[activeSpaceDidChangeNotification](https://developer.apple.com/documentation/appkit/nsworkspace/activespacedidchangenotification),
+[Work in multiple spaces](https://support.apple.com/guide/mac-help/work-in-multiple-spaces-mh14112/mac) y
+[Desktop & Dock settings](https://support.apple.com/guide/mac-help/-mchlp1119/mac/26).
+
 ## Respuesta final
 
-La sincronización de macOS Spaces entre displays, incluyendo seleccionar el
-Space posicional correspondiente y mover ventanas de otras apps a él, **no es
-posible de forma fiable sin APIs privadas o automatización no documentada**.
-BlazaresSpaces debe usar MODE B y ofrecer Virtual Spaces lógicos, dejando claro
-que son contextos propios y no una segunda representación controlable de Mission
-Control.
+La administración nativa directa de macOS Spaces no está disponible mediante
+API pública. MODE C queda abierto como integración experimental basada en
+atajos públicos, especialmente con Spaces separados OFF; no proporciona IDs,
+no verifica semánticamente Desktop N y debe mantener MODE B como fallback.
