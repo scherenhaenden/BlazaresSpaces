@@ -13,10 +13,10 @@ struct BlazaresSpacesApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            DailyDriverDashboardView()
                 .environmentObject(model)
         }
-        .defaultSize(width: 900, height: 700)
+        .defaultSize(width: 980, height: 760)
 
         MenuBarExtra {
             MenuBarControllerView()
@@ -25,6 +25,12 @@ struct BlazaresSpacesApp: App {
             Label(model.workspaceName(model.workspaceManager.activeWorkspaceID), systemImage: "square.3.layers.3d")
         }
         .menuBarExtraStyle(.menu)
+
+        Window("BlazaresSpaces Inspector", id: "inspector") {
+            ContentView()
+                .environmentObject(model)
+        }
+        .defaultSize(width: 900, height: 700)
 
         Window(WindowControlLabConstants.title, id: "window-control-lab") {
             WindowControlLabView()
