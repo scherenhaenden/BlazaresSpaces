@@ -1,76 +1,255 @@
 # BlazaresSpaces
 
-KDE-style global virtual desktops for macOS.
+**KDE-style global virtual desktops for macOS.**
 
-BlazaresSpaces is an experimental, open-source macOS virtual desktop manager focused on multi-monitor context switching. One workspace spans all connected displays.
+BlazaresSpaces is an experimental open-source macOS workspace manager built around one simple idea:
+
+> **One workspace spans all connected displays.**
+
+If you use several monitors, switching context should switch the *entire desk* — not one display at a time.
+
+BlazaresSpaces is being designed for people who keep multiple parallel contexts open during the day: work, development, study, personal projects, research, or anything else that benefits from a clean mental boundary.
+
+---
+
+## The problem
+
+macOS Spaces are useful, but their multi-monitor model does not always match the way KDE/Linux users think about virtual desktops.
+
+BlazaresSpaces uses a different mental model:
 
 ```text
-Desktop 1
-+-------------+-------------+-------------+
-| Display 1   | Display 2   | Display 3   |
-| Work        | Work        | Work        |
-+-------------+-------------+-------------+
+Workspace 1 — WORK
 
-                    SWITCH
+┌──────────────────┬──────────────────┬──────────────────┐
+│    Display 1     │    Display 2     │    Display 3     │
+│                  │                  │                  │
+│      Citrix      │      Citrix      │  Outlook / Teams │
+│                  │                  │                  │
+└──────────────────┴──────────────────┴──────────────────┘
 
-Desktop 2
-+-------------+-------------+-------------+
-| Display 1   | Display 2   | Display 3   |
-| Development | Development | Development |
-+-------------+-------------+-------------+
+                         ⇅ SWITCH
+
+Workspace 2 — DEVELOPMENT
+
+┌──────────────────┬──────────────────┬──────────────────┐
+│    Display 1     │    Display 2     │    Display 3     │
+│                  │                  │                  │
+│       IDE        │ ChatGPT / Browser│     Terminal     │
+│                  │                  │                  │
+└──────────────────┴──────────────────┴──────────────────┘
 ```
 
-BlazaresSpaces does not tile windows, create or manipulate native macOS Spaces, use private Mission Control/WindowServer APIs, or require disabling SIP. It is currently a proof of concept using public AppKit, CoreGraphics, and Accessibility APIs.
+The user decides where every window goes. BlazaresSpaces should remember that complete arrangement and eventually restore it as one global workspace.
 
-## Current status — 0.0.1 Window & Display Inspector
+The key invariant is:
 
-The app can:
+```text
+ONE WORKSPACE = THE COMPLETE WINDOW STATE ACROSS ALL DISPLAYS
+```
 
-- report Accessibility authorization and request access;
-- enumerate connected displays with IDs, global frames, visible frames, and scale factors;
-- read normal application windows exposed through Accessibility;
-- show application metadata, window geometry/state, and the display with the largest overlap;
-- report discovery failures without terminating or mutating other applications.
+Workspaces are therefore **global**, not assigned independently to individual monitors.
 
-The inspector remains read-only for every external application. This iteration also includes an explicitly opened **Window Control Lab**: a dedicated BlazaresSpaces-owned window with Capture, Move, Resize, and Restore controls. Those controls are hard-scoped to that test window and never target unselected applications.
+---
 
-The inspector can also capture an in-memory, read-only snapshot of all currently discovered external windows. Snapshots are diagnostic only: they are not persisted and cannot restore or switch workspaces yet.
+## What BlazaresSpaces is not
 
-Window titles are hidden by default in the inspector and can be revealed explicitly for local debugging because they may contain sensitive work information.
+BlazaresSpaces is **not another tiling window manager**.
 
-The external test mode is opt-in per window. A discovered window is never mutable by default. The user must explicitly select one eligible window or a temporary test set. Conservative application exclusions are marked **NEVER MANAGE** by the default policy. External restore requires a usable AX runtime identifier, rechecks the exact PID/bundle/identifier, and reports the requested versus resulting frame.
+It is intentionally not trying to become AeroSpace, i3, yabai, Amethyst, or a layout engine. It does not want to decide where your windows belong.
 
-## Running
+The project is focused on **context switching**, not automatic window arrangement.
 
-1. Open `BlazaresSpaces.xcodeproj` in Xcode and run the `BlazaresSpaces` scheme.
-2. Click **Request Access**.
-3. Enable BlazaresSpaces in **System Settings → Privacy & Security → Accessibility**. If macOS lists an older build, remove it and request access again.
-4. Return to the app and click **Refresh**.
+For the initial versions this also means:
 
-Accessibility permission is tied to the built app's signing identity and location. Rebuilding or changing signing may require granting it again. Some apps expose incomplete attributes, protected windows, or no AX windows at all. Window titles are shown in the local diagnostics UI but deliberately omitted from logs because they may be sensitive.
+- no tiling;
+- no i3-style window trees;
+- no automatic layouts;
+- no per-monitor workspaces;
+- no replacement of Mission Control;
+- no manipulation of native macOS Spaces;
+- no SIP modifications;
+- no private Mission Control or WindowServer APIs;
+- no cloud synchronization or telemetry.
 
-## Directional milestones
+The long-term goal is to stay as close as practical to public macOS APIs.
 
-- **0.0.1:** Window and display inspector
-- **0.0.2:** Capture/restore layouts
-- **0.0.3:** Two global logical workspaces
-- **0.1.0:** Usable workspace-switching MVP
-- **0.2.0:** Persistence and robust display topology handling
-- **0.3.0:** Application/window rules and exclusions
-- **0.4.0:** Menu bar UX and configuration
-- **0.5.0:** Transition framework
-- **0.6.0:** Optional Desktop Cube-style transition
-- **1.0.0:** Stable global desktop manager
+---
 
-These milestones are direction, not promises. See [the vision](docs/vision.md) and [architecture notes](docs/architecture.md).
+## Current status
 
-## Safe 0.0.2 verification
+### `0.0.2` — Safe Capture / Restore
 
-After granting Accessibility access, click **Window Control Lab**. Use **Capture Frame**, move or resize the lab manually, then use **Restore Captured Frame**. The explicit **Move Test Window** and **Resize Test Window** actions are limited to this window. Drag it between monitors and repeat the experiment; external applications must never move.
+The project has moved beyond the read-only inspector foundation and now includes explicit, safety-scoped capture and restoration experiments for external windows.
 
-Click **Capture Desktop Snapshot** in the inspector to record the current external desktop state in memory. It only reads AX attributes and reports the number of windows and represented displays.
+Implemented so far:
 
-For an external restore experiment, select a safe disposable window with **Use as Capture/Restore Test Window**, click **Capture Selected Window**, manually move or resize that window, then click **Restore Selected Window**. The UI reports exact, adjusted, missing, excluded, unsupported, permission-denied, and failed outcomes. There is no automatic external move action.
+- Accessibility authorization detection and permission request;
+- connected-display discovery;
+- global display frames, visible frames, and scale/backing information;
+- Accessibility-based application-window discovery;
+- application metadata, runtime window identity, geometry, and state inspection;
+- window-to-display mapping using largest display overlap;
+- diagnostics that tolerate inaccessible or disappearing windows;
+- a BlazaresSpaces-owned **Window Control Lab** for safe move/resize/restore experiments;
+- explicit authorization of external test windows;
+- conservative `NEVER MANAGE` exclusions;
+- single-window capture and explicit restore;
+- selected multi-window capture and restore with per-window failure isolation;
+- requested-versus-actual frame verification;
+- read-only in-memory global desktop snapshots;
+- hidden window titles by default to reduce exposure of sensitive information.
+
+Discovery remains read-only by default. Finding a window does **not** grant permission to mutate it. External restore requires explicit user selection, a usable AX runtime identity, and a re-check of the exact runtime window before mutation.
+
+`0.0.2` is code-complete but still requires physical validation on real multi-monitor macOS hardware before it should be treated as fully verified.
+
+---
+
+## Versioning
+
+BlazaresSpaces uses milestone-oriented pre-1.0 versions. Each version is intended to represent a concrete increase in capability rather than an arbitrary build number.
+
+The current development milestone is **`0.0.2`**. Until a milestone has been implemented and manually verified on real macOS hardware, it should be treated as development work rather than a completed stable release.
+
+The version progression is intentionally conservative:
+
+```text
+0.0.x  → prove the low-level macOS/window-management foundation
+0.1.x  → first genuinely usable global-workspace MVP
+0.2.x+ → robustness, persistence, rules and UX
+1.0.0  → stable global desktop manager suitable for regular use
+```
+
+Once milestones become releasable, Git tags and GitHub Releases should use the same version numbers so that the README, source tree and published builds remain aligned.
+
+---
+
+## Safety-first development
+
+BlazaresSpaces is being developed and tested on a machine that is also used for real work.
+
+That has shaped the development strategy from the beginning:
+
+```text
+OBSERVE
+   ↓
+CAPTURE
+   ↓
+CONTROL A SAFE TEST WINDOW
+   ↓
+RESTORE
+   ↓
+ONLY THEN MANAGE REAL WORKSPACES
+```
+
+The inspector and Refresh remain read-only. External mutation is opt-in per window and happens only after explicit selection. Conservative exclusions remain visible as `NEVER MANAGE`, and there is no fallback to a merely similar window if the selected runtime identity disappears.
+
+---
+
+## Planned architecture
+
+BlazaresSpaces is a native macOS application written in Swift.
+
+The current direction is:
+
+```text
+Swift / SwiftUI / AppKit
+        │
+        ├── Accessibility
+        │     AXUIElement inspection and controlled mutation
+        │
+        ├── Displays
+        │     CoreGraphics + NSScreen topology
+        │
+        ├── Windows
+        │     identity, authorization, geometry, snapshots, restoration
+        │
+        ├── Workspaces
+        │     global multi-display logical contexts
+        │
+        └── UI / Diagnostics
+              inspection, safe testing and configuration
+```
+
+The domain model is deliberately kept separate from macOS-specific Accessibility objects so that workspace logic can be tested without physically moving real windows.
+
+See [`docs/architecture.md`](docs/architecture.md) for architecture notes, [`docs/vision.md`](docs/vision.md) for the product vision, and [`docs/window-deactivation.md`](docs/window-deactivation.md) for the current analysis of future inactive-workspace window strategies.
+
+---
+
+## Why not native macOS Spaces?
+
+The first versions deliberately avoid building on top of native Spaces.
+
+BlazaresSpaces instead explores **application-managed logical workspaces** using public APIs such as:
+
+- Accessibility / `AXUIElement`;
+- AppKit;
+- CoreGraphics;
+- `NSScreen`;
+- `NSWorkspace`.
+
+This keeps the project independent from private Mission Control internals and avoids requiring SIP changes.
+
+The exact strategy for deactivating windows that belong to an inactive logical workspace remains experimental and will only be chosen after controlled testing.
+
+---
+
+## Roadmap
+
+| Version | Goal |
+|---|---|
+| `0.0.1` | Window & display inspector |
+| `0.0.2` | Safe capture / restore of layouts |
+| `0.0.3` | Global logical workspaces |
+| `0.1.0` | Usable workspace-switching MVP |
+| `0.2.0` | Persistence and robust display-topology handling |
+| `0.3.0` | Application/window rules and exclusions |
+| `0.4.0` | Menu-bar UX and configuration |
+| `0.5.0` | Transition framework |
+| `0.6.0` | Optional Desktop Cube-style transition |
+| `1.0.0` | Stable global desktop manager |
+
+These are directional milestones, not release promises.
+
+The optional Cube is intentionally late in the roadmap. First the underlying global workspace model has to be reliable. Visual transitions can then be layered on top without turning the project into a compositor replacement.
+
+---
+
+## Running the current build
+
+Requirements:
+
+- macOS;
+- Xcode with macOS platform support;
+- Accessibility permission for BlazaresSpaces.
+
+Then:
+
+1. Open `BlazaresSpaces.xcodeproj` in Xcode.
+2. Run the `BlazaresSpaces` scheme.
+3. Click **Request Access** if Accessibility permission has not yet been granted.
+4. Open **System Settings → Privacy & Security → Accessibility** and enable BlazaresSpaces.
+5. Return to the app and click **Refresh**.
+
+Accessibility authorization is tied to the built application's identity/location. Rebuilding or changing signing may require granting permission again.
+
+Some applications expose incomplete Accessibility information, protected windows, unusual child windows, or no manageable windows at all. Those cases are part of what the current inspector exists to discover.
+
+Window titles may contain sensitive information. They are hidden by default and are not intended to be persisted or logged verbosely.
+
+---
+
+## Safe `0.0.2` verification
+
+After granting Accessibility access, click **Window Control Lab**. Use **Capture Frame**, move or resize the lab manually, then use **Restore Captured Frame**. The explicit **Move Test Window** and **Resize Test Window** actions are limited to this BlazaresSpaces-owned test window.
+
+Click **Capture Desktop Snapshot** in the inspector to record the current external desktop state in memory. This operation only reads AX attributes and reports the number of windows and represented displays.
+
+For an external restore experiment, explicitly select a safe disposable window with **Use as Capture/Restore Test Window**, click **Capture Selected Window**, manually move or resize that window, then click **Restore Selected Window**. The UI reports exact, adjusted, missing, excluded, unsupported, permission-denied, and failed outcomes. There is no automatic external move action.
+
+A temporary set of explicitly selected safe windows can also be captured and restored together. Restoration proceeds per window so one failure does not prevent unrelated selected windows from being processed.
 
 ### Manual verification checklist
 
@@ -78,5 +257,37 @@ For an external restore experiment, select a safe disposable window with **Use a
 - **B — Displays:** Confirm all physical displays, IDs, frames, visible frames, scale, and negative coordinates.
 - **C — Inspector:** Confirm expected applications and geometry without any visible changes.
 - **D — Control Lab:** Capture, move, resize, and restore only the BlazaresSpaces lab window.
-- **E — Multi-display restore:** Manually drag the lab to another display, capture, move it, and restore it.
-- **F — Full snapshot:** Capture Desktop Snapshot and confirm approximate window/display counts; verify nothing external changed.
+- **E — Single external restore:** Explicitly select one safe disposable external window, capture it, move/resize it manually, restore it, and verify requested vs actual frame.
+- **F — Multi-display external restore:** Capture a selected test window on one display, manually move it to another, restore it, and verify it returns correctly.
+- **G — Exclusions:** Confirm `NEVER MANAGE` applications cannot be selected for mutation.
+- **H — Selected-set restore:** Capture several explicitly selected safe windows, rearrange them manually, restore the set, and inspect individual outcomes.
+- **I — Partial failure:** Close one selected window before restore and confirm the remaining selected windows are still processed.
+- **J — Full snapshot:** Capture the global read-only desktop snapshot and confirm no unselected external window changes.
+
+---
+
+## Design principle
+
+The most important design rule in the project is deliberately boring:
+
+> **BlazaresSpaces should remember the user's layout, not invent one.**
+
+If a user puts eleven windows across three monitors exactly where they want them, the job of BlazaresSpaces is to preserve that context and bring it back reliably.
+
+That is the product.
+
+---
+
+## Project maturity
+
+BlazaresSpaces is currently a proof of concept and **not yet a daily-driver workspace manager**.
+
+The project is public early on purpose: the difficult part is not drawing a UI, but discovering which combinations of macOS Accessibility behavior, multi-display coordinate systems, application quirks and restoration strategies are robust enough to support a real global desktop model.
+
+Expect experiments, diagnostics and architecture changes before `0.1.0`.
+
+---
+
+## License
+
+Open source. See the repository license for details.
