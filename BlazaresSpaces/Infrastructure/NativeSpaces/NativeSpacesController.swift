@@ -30,7 +30,7 @@ struct NativeSpacesController: NativeSpacesControlling {
         }
         guard let target = bindings.first(where: { $0.virtualSpacePosition == virtualPosition }),
               let targetSpace = target.spacesByDisplay[current.displayIdentifier] else {
-            return .unavailable("No native desktop exists on active display (current.displayIdentifier) for Virtual Space (virtualPosition)")
+            return .unavailable("No native desktop exists on active display \(current.displayIdentifier) for Virtual Space \(virtualPosition)")
         }
         let delta = virtualPosition - currentPosition
         if delta == 0 { return .activated }
@@ -61,7 +61,7 @@ struct NativeSpacesController: NativeSpacesControlling {
         if waitForTarget(targetSpace.runtimeID, semaphore: semaphore, timeout: timeout) {
             return .activated
         }
-        return .failed("Dock swipe and keyboard fallback produced no native transition for Desktop (virtualPosition)")
+        return .failed("Dock swipe and keyboard fallback produced no native transition for Desktop \(virtualPosition)")
     }
 
     private nonisolated func waitForTarget(_ targetRuntimeID: UInt64, semaphore: DispatchSemaphore, timeout: TimeInterval) -> Bool {
