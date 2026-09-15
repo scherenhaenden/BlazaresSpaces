@@ -87,6 +87,9 @@ final class DiagnosticsViewModel: ObservableObject {
     var restoreReport: WindowRestoreReport? { localRestoreReport ?? service.restoreReport }
     var excludedBundleIdentifierPrefixes: [String] { service.managementPolicy.excludedBundleIdentifierPrefixes }
     var excludedApplicationNames: [String] { service.managementPolicy.excludedApplicationNames }
+    func updateManagementExclusions(applicationNames: [String], bundlePrefixes: [String]) {
+        service.updateManagementExclusions(applicationNames: applicationNames, bundlePrefixes: bundlePrefixes)
+    }
 
     var externalTestModeEnabled: Bool {
         selectedTestWindowID != nil || !selectedTestSetIDs.isEmpty

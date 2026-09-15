@@ -36,7 +36,7 @@ final class WorkspaceApplicationService: ObservableObject {
     let permissionManager: any AccessibilityChecking
     let stateStore: any WorkspaceStatePersisting
     let shortcutManager: any HotkeyRegistering
-    let managementPolicy: WindowManagementPolicy
+    @Published private(set) var managementPolicy: WindowManagementPolicy
     let workspaceEngine: WorkspaceSwitchEngine
     let restorationCoordinator: SessionRestorationCoordinator
 
@@ -418,6 +418,21 @@ final class WorkspaceApplicationService: ObservableObject {
 
     func isManaged(_ window: WindowSnapshot) -> Bool {
         workspaceManager.member(for: window.runtimeIdentity) != nil
+    }
+
+    func updateManagementExclusions(applicationNames: [String], bundlePrefixes: [String]) {
+        managementPolicy.excludedApplicationNames = normalizedUnique(applicationNames)
+        managementPolicy.excludedBundleIdentifierPrefixes = normalizedUnique(bundlePrefixes)
+        actionStatus = "Safety exclusions updated. Refresh to apply them to discovered windows."
+    }
+
+    private func normalizedUnique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.compactMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed.lowercased()).inserted else { return nil }
+            return trimmed
+        }
     }
 
     func manageWindow(_ window: WindowSnapshot) {

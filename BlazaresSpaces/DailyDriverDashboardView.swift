@@ -5,6 +5,8 @@ struct DailyDriverDashboardView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var workspaceNameDrafts: [String: String] = [:]
     @State private var showAdvancedDiagnostics = false
+    @State private var newExcludedApplication = ""
+    @State private var newExcludedBundlePrefix = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -147,10 +149,52 @@ struct DailyDriverDashboardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 ForEach(model.excludedApplicationNames, id: \.self) { name in
-                    Text("• (name)")
+                    HStack {
+                        Text(name)
+                        Spacer()
+                        Button("Remove") {
+                            model.updateManagementExclusions(
+                                applicationNames: model.excludedApplicationNames.filter { $0 != name },
+                                bundlePrefixes: model.excludedBundleIdentifierPrefixes
+                            )
+                        }
+                    }
                 }
                 ForEach(model.excludedBundleIdentifierPrefixes, id: \.self) { prefix in
-                    Text("• Bundle prefix: (prefix)")
+                    HStack {
+                        Text("Bundle prefix: \(prefix)")
+                        Spacer()
+                        Button("Remove") {
+                            model.updateManagementExclusions(
+                                applicationNames: model.excludedApplicationNames,
+                                bundlePrefixes: model.excludedBundleIdentifierPrefixes.filter { $0 != prefix }
+                            )
+                        }
+                    }
+                }
+                HStack {
+                    TextField("Application to exclude", text: $newExcludedApplication)
+                    Button("Add") {
+                        let value = newExcludedApplication.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !value.isEmpty else { return }
+                        model.updateManagementExclusions(
+                            applicationNames: model.excludedApplicationNames + [value],
+                            bundlePrefixes: model.excludedBundleIdentifierPrefixes
+                        )
+                        newExcludedApplication = ""
+                    }
+                }
+                HStack {
+                    TextField("Bundle prefix to exclude", text: $newExcludedBundlePrefix)
+                    Button("Add") {
+                        let value = newExcludedBundlePrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !value.isEmpty else { return }
+                        model.updateManagementExclusions(
+                            applicationNames: model.excludedApplicationNames,
+                            bundlePrefixes: model.excludedBundleIdentifierPrefixes + [value]
+                        )
+                        newExcludedBundlePrefix = ""
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
