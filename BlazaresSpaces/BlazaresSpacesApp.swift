@@ -14,5 +14,10 @@ struct BlazaresSpacesApp: App {
             ContentView()
         }
         .defaultSize(width: 900, height: 700)
+
+        Window(WindowControlLabConstants.title, id: "window-control-lab") {
+            WindowControlLabView()
+        }
+        .defaultSize(width: 760, height: 360)
     }
 }

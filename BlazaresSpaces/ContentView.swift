@@ -9,6 +9,8 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = DiagnosticsViewModel()
+    @Environment(\.openWindow) private var openWindow
+    @State private var showWindowTitles = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -18,6 +20,7 @@ struct ContentView: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     displaysSection
                     windowsSection
+                    if let snapshot = model.desktopSnapshot { snapshotSection(snapshot) }
                     if !model.issues.isEmpty { issuesSection }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -49,6 +52,8 @@ struct ContentView: View {
                 Button("Request Access") { model.requestAccessibilityAccess() }
                 Button("Open Settings") { model.openAccessibilitySettings() }
             }
+            Button("Window Control Lab") { openWindow(id: "window-control-lab") }
+            Button("Capture Desktop Snapshot") { model.captureAllWindows() }
             Button("Refresh") { model.refresh() }
                 .keyboardShortcut("r", modifiers: .command)
         }
@@ -84,12 +89,15 @@ struct ContentView: View {
                 } else if model.windows.isEmpty {
                     Text("No manageable windows were found.").foregroundStyle(.secondary)
                 }
+                Toggle("Show window titles (may contain sensitive information)", isOn: $showWindowTitles)
                 ForEach(model.windows) { window in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(window.applicationName).font(.headline)
-                        Text(window.title?.isEmpty == false ? window.title! : "Untitled window")
-                            .lineLimit(1)
-                            .help(window.title ?? "")
+                        if showWindowTitles {
+                            Text(window.title?.isEmpty == false ? window.title! : "Untitled window")
+                                .lineLimit(1)
+                                .help(window.title ?? "")
+                        }
                         Text("PID: \(window.runtimeIdentity.processIdentifier)  Bundle: \(window.bundleIdentifier ?? "Unavailable")")
                         Text("AX ID: \(window.runtimeIdentity.accessibilityIdentifier ?? "Unavailable")  Subrole: \(window.subrole ?? "Unavailable")")
                         Text("Frame: \(window.frame.diagnosticDescription)  Display: \(window.displayID.map(String.init) ?? "Unmapped")")
@@ -98,6 +106,19 @@ struct ContentView: View {
                     .fontDesign(.monospaced)
                     Divider()
                 }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+        }
+    }
+
+    private func snapshotSection(_ snapshot: WorkspaceSnapshot) -> some View {
+        GroupBox("Last read-only desktop snapshot") {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Captured windows: \(snapshot.windows.count)")
+                Text("Displays represented: \(snapshot.representedDisplayIDs.count)")
+                Text("Captured: \(snapshot.capturedAt.formatted(date: .abbreviated, time: .shortened))")
+                Text("No external windows were changed.").foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(6)

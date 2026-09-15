@@ -6,11 +6,18 @@ enum DisplayMapper {
     static func displayID(for windowFrame: CGRect, among displays: [DisplaySnapshot]) -> CGDirectDisplayID? {
         guard !displays.isEmpty else { return nil }
 
-        let overlaps = displays.map { display in
-            (display.id, windowFrame.intersection(display.frame).area)
+        var bestIndex = 0
+        var bestArea: CGFloat = 0
+        for (index, display) in displays.enumerated() {
+            let area = windowFrame.intersection(display.frame).area
+            // Keep the first display on a tie. DisplayManager supplies a stable order.
+            if area > bestArea {
+                bestArea = area
+                bestIndex = index
+            }
         }
-        if let best = overlaps.max(by: { $0.1 < $1.1 }), best.1 > 0 {
-            return best.0
+        if bestArea > 0 {
+            return displays[bestIndex].id
         }
 
         let center = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
@@ -32,4 +39,3 @@ private extension CGRect {
         return dx * dx + dy * dy
     }
 }
-

@@ -32,7 +32,11 @@ The app can:
 - show application metadata, window geometry/state, and the display with the largest overlap;
 - report discovery failures without terminating or mutating other applications.
 
-This version is strictly read-only. It does not move, resize, minimize, hide, or restore windows.
+The inspector remains read-only for every external application. This iteration also includes an explicitly opened **Window Control Lab**: a dedicated BlazaresSpaces-owned window with Capture, Move, Resize, and Restore controls. Those controls are hard-scoped to that test window and never target Citrix or any other existing application.
+
+The inspector can also capture an in-memory, read-only snapshot of all currently discovered external windows. Snapshots are diagnostic only: they are not persisted and cannot restore or switch workspaces yet.
+
+Window titles are hidden by default in the inspector and can be revealed explicitly for local debugging because they may contain sensitive work information.
 
 ## Running
 
@@ -58,3 +62,17 @@ Accessibility permission is tied to the built app's signing identity and locatio
 
 These milestones are direction, not promises. See [the vision](docs/vision.md) and [architecture notes](docs/architecture.md).
 
+## Safe 0.0.2 verification
+
+After granting Accessibility access, click **Window Control Lab**. Use **Capture Frame**, move or resize the lab manually, then use **Restore Captured Frame**. The explicit **Move Test Window** and **Resize Test Window** actions are limited to this window. Drag it between monitors and repeat the experiment; external applications must never move.
+
+Click **Capture Desktop Snapshot** in the inspector to record the current external desktop state in memory. It only reads AX attributes and reports the number of windows and represented displays.
+
+### Manual verification checklist
+
+- **A — Accessibility:** Confirm Granted/Not Granted and that Refresh never changes other windows.
+- **B — Displays:** Confirm all physical displays, IDs, frames, visible frames, scale, and negative coordinates.
+- **C — Inspector:** Confirm expected applications and geometry without any visible changes.
+- **D — Control Lab:** Capture, move, resize, and restore only the BlazaresSpaces lab window.
+- **E — Multi-display restore:** Manually drag the lab to another display, capture, move it, and restore it.
+- **F — Full snapshot:** Capture Desktop Snapshot and confirm approximate window/display counts; verify nothing external changed.

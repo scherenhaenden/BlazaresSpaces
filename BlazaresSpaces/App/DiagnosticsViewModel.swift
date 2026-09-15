@@ -9,6 +9,7 @@ final class DiagnosticsViewModel: ObservableObject {
     @Published private(set) var windows: [WindowSnapshot] = []
     @Published private(set) var issues: [WindowDiscoveryIssue] = []
     @Published private(set) var lastRefresh: Date?
+    @Published private(set) var desktopSnapshot: WorkspaceSnapshot?
 
     private let permissionManager = AccessibilityPermissionManager()
     private let displayManager = DisplayManager()
@@ -38,9 +39,21 @@ final class DiagnosticsViewModel: ObservableObject {
         }
     }
 
+    /// Captures all currently discovered external windows without changing any window.
+    func captureAllWindows() {
+        let currentDisplays = displayManager.displays()
+        let result = accessibilityGranted
+            ? windowDiscovery.discover(displays: currentDisplays)
+            : WindowDiscoveryResult(windows: [], issues: [])
+        displays = currentDisplays
+        windows = result.windows
+        issues = result.issues
+        desktopSnapshot = WorkspaceSnapshot(capturedAt: Date(), displays: currentDisplays, windows: result.windows)
+        lastRefresh = Date()
+    }
+
     func openAccessibilitySettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
         NSWorkspace.shared.open(url)
     }
 }
-
