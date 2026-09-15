@@ -18,6 +18,16 @@ struct AXWindowDiscovery {
             let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &rawWindows)
 
             guard result == .success else {
+                // Some applications (notably Numbers with protected or
+                // transient document windows) expose the application to AX
+                // but refuse the windows attribute with kAXErrorCannotComplete
+                // (-25204). This is a per-application discovery limitation,
+                // not a global BlazaresSpaces failure and must not make the
+                // whole inspector look broken.
+                if result == .cannotComplete {
+                    logger.debug("Skipping temporarily inaccessible AX windows for \(name, privacy: .public) (AX error \(result.rawValue, privacy: .public))")
+                    continue
+                }
                 if result != .noValue && result != .attributeUnsupported {
                     issues.append(.init(
                         applicationName: name,
