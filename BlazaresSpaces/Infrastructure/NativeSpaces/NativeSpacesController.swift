@@ -77,7 +77,7 @@ struct NativeSpacesController: NativeSpacesControlling {
         // System Events is the public user-facing automation path used by
         // macOS itself for keyboard shortcuts. It is intentionally a fallback
         // because the user must grant Automation permission to System Events.
-        let scriptKeyCode = delta > 0 ? 124 : 123
+        let scriptKeyCode: CGKeyCode = delta > 0 ? 124 : 123
         guard postAppleScriptControl(scriptKeyCode, count: abs(delta)) else {
             return .failed("Control-arrow and Control+\(virtualPosition) were posted, but macOS did not activate Desktop \(virtualPosition); System Events automation was unavailable or denied")
         }
