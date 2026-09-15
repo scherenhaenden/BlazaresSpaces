@@ -113,6 +113,12 @@ struct DailyDriverDashboardView: View {
                     .toggleStyle(.switch)
                     .disabled(!model.accessibilityGranted)
 
+                    Toggle("Experimental native activation", isOn: Binding(
+                        get: { model.experimentalNativeSpacesEnabled },
+                        set: { model.setExperimentalNativeSpacesEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
                 }
 
                 if model.workspaceTopologyChanged {
@@ -128,7 +134,7 @@ struct DailyDriverDashboardView: View {
 
                 GroupBox("Native macOS Spaces") {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Read-only inspection. BlazaresSpaces will not create, delete, reorder, activate, or move windows between native Spaces.")
+                        Text("Experimental native integration. Existing Spaces may be activated; creation, deletion and window movement are not automatic yet.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         HStack {

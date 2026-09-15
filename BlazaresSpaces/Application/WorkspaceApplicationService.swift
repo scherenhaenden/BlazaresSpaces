@@ -29,6 +29,7 @@ final class WorkspaceApplicationService: ObservableObject {
 
     @Published private(set) var workspaceManager = WorkspaceManager()
     @Published private(set) var experimentalWorkspaceModeEnabled = false
+    @Published private(set) var experimentalNativeSpacesEnabled = false
     @Published private(set) var workspaceSwitchResult: WorkspaceSwitchResult?
     @Published private(set) var workspaceSwitchState: WorkspaceSwitchState = .idle
     @Published private(set) var workspaceTopologyChanged = false
@@ -46,6 +47,7 @@ final class WorkspaceApplicationService: ObservableObject {
     let focusedWindowProvider: any FocusedWindowProviding
     let activationStrategyProvider: any VirtualSpaceActivationStrategyProviding
     let nativeSpacesProvider: any NativeSpacesProviding
+    let nativeSpacesController: any NativeSpacesControlling
     let windowController: any WindowControlling
     let displayProvider: any DisplayTopologyProviding
     let permissionManager: any AccessibilityChecking
@@ -73,7 +75,8 @@ final class WorkspaceApplicationService: ObservableObject {
             workspaceEngine: WorkspaceSwitchEngine(),
             restorationCoordinator: SessionRestorationCoordinator(),
             activationStrategyProvider: LogicalVirtualSpaceActivationAdapter(),
-            nativeSpacesProvider: SkyLightNativeSpacesProvider()
+            nativeSpacesProvider: SkyLightNativeSpacesProvider(),
+            nativeSpacesController: NativeSpacesController()
         )
     }
 
@@ -89,12 +92,14 @@ final class WorkspaceApplicationService: ObservableObject {
         workspaceEngine: WorkspaceSwitchEngine,
         restorationCoordinator: SessionRestorationCoordinator,
         activationStrategyProvider: any VirtualSpaceActivationStrategyProviding = LogicalVirtualSpaceActivationAdapter(),
-        nativeSpacesProvider: any NativeSpacesProviding = SkyLightNativeSpacesProvider()
+        nativeSpacesProvider: any NativeSpacesProviding = SkyLightNativeSpacesProvider(),
+        nativeSpacesController: any NativeSpacesControlling = NativeSpacesController()
     ) {
         self.windowDiscovery = windowDiscovery
         self.focusedWindowProvider = focusedWindowProvider
         self.activationStrategyProvider = activationStrategyProvider
         self.nativeSpacesProvider = nativeSpacesProvider
+        self.nativeSpacesController = nativeSpacesController
         self.windowController = windowController
         self.displayProvider = displayProvider
         self.permissionManager = permissionManager
@@ -463,7 +468,9 @@ final class WorkspaceApplicationService: ObservableObject {
             actionStatus = "That desktop no longer exists."
             return
         }
-        let mode: VirtualSpaceActivationMode = experimentalWorkspaceModeEnabled ? .managedWindows : .logicalOnly
+        let mode: VirtualSpaceActivationMode = experimentalNativeSpacesEnabled
+            ? .nativeSpacesExperimental
+            : (experimentalWorkspaceModeEnabled ? .managedWindows : .logicalOnly)
         switch activationStrategyProvider.strategy(for: mode) {
         case .managedWindowSwitch:
             switchWorkspace(to: id)
@@ -471,7 +478,32 @@ final class WorkspaceApplicationService: ObservableObject {
             _ = workspaceManager.activate(id)
             persistAuthoritativeState()
             actionStatus = "Activated \(workspaceName(id)) in the logical desktop model."
+        case .nativeSpacesExperimental:
+            activateNativeWorkspace(id)
         }
+    }
+
+    private func activateNativeWorkspace(_ id: WorkspaceID) {
+        guard let position = workspaceManager.workspaceOrder.firstIndex(of: id).map({ $0 + 1 }) else { return }
+        guard case let .success(topology) = nativeSpacesProvider.readTopology() else {
+            actionStatus = "Native Spaces topology is unavailable; no logical-only activation was performed."
+            return
+        }
+        switch nativeSpacesController.activate(virtualPosition: position, topology: topology) {
+        case .activated:
+            _ = workspaceManager.activate(id)
+            persistAuthoritativeState()
+            actionStatus = "Activated native macOS Desktop \(position) for \(workspaceName(id))."
+        case let .unavailable(message), let .failed(message):
+            actionStatus = "Native activation failed: \(message)"
+        }
+    }
+
+    func setExperimentalNativeSpacesEnabled(_ enabled: Bool) {
+        experimentalNativeSpacesEnabled = enabled
+        actionStatus = enabled
+            ? "Experimental native activation enabled. Existing Spaces only; creation/deletion is not automatic."
+            : "Experimental native activation disabled."
     }
 
     func activateNextWorkspace() {
