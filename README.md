@@ -101,6 +101,25 @@ It does **not** move, resize, minimize, hide, close, restore, focus, or otherwis
 
 ---
 
+## Versioning
+
+BlazaresSpaces uses milestone-oriented pre-1.0 versions. Each version is intended to represent a concrete increase in capability rather than an arbitrary build number.
+
+The current development target is **`0.0.1`**. Until a milestone has been implemented and manually verified on real macOS hardware, it should be treated as development work rather than a completed release.
+
+The version progression is intentionally conservative:
+
+```text
+0.0.x  → prove the low-level macOS/window-management foundation
+0.1.x  → first genuinely usable global-workspace MVP
+0.2.x+ → robustness, persistence, rules and UX
+1.0.0  → stable global desktop manager suitable for regular use
+```
+
+Once milestones become releasable, Git tags and GitHub Releases should use the same version numbers so that the README, source tree and published builds remain aligned.
+
+---
+
 ## Safety-first development
 
 BlazaresSpaces is being developed and tested on a machine that is also used for real work.
