@@ -22,7 +22,15 @@ Desktop 2
 
 BlazaresSpaces does not tile windows, create or manipulate native macOS Spaces, use private Mission Control/WindowServer APIs, or require disabling SIP. It is currently a proof of concept using public AppKit, CoreGraphics, and Accessibility APIs.
 
-## Current status — 0.1.0 Daily-driver global workspace MVP
+## Current status — 0.2.0 in development
+
+The 0.1.0 daily-driver global workspace MVP is the current functional baseline. The active 0.2.0 milestone is modularizing that baseline and adding versioned persistence plus conservative session restoration. The architectural rules and the exact distinction between current and pending behavior are documented in [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+The target 0.2.0 design keeps runtime AX identity separate from durable window identity. Workspace configuration, many-to-many window membership, sticky semantics, and logical geometry will use an explicit versioned model. Relaunch discovery and matching remain read-only: an ambiguous candidate is never guessed, and no external window moves merely because BlazaresSpaces launched or loaded saved state.
+
+The repository now contains the initial pure durable-window models, versioned JSON persistence, deterministic matching, conservative topology mapping, and switch planning for 0.2.0. They are not yet fully wired into the application lifecycle. The app UI therefore does not yet provide durable window membership, matching review, corrupted-state recovery, or crash recovery. Those behaviors become available only after integration and automated/manual validation; this README does not treat the architecture contract as shipped functionality.
+
+### 0.1.0 functional baseline
 
 The app can:
 
@@ -61,14 +69,14 @@ Accessibility permission is tied to the built app's signing identity and locatio
 - **0.0.2:** Capture/restore layouts
 - **0.0.3:** Dynamic global logical workspaces (initially tested with two)
 - **0.1.0:** Daily-driver global workspace MVP
-- **0.2.0:** Persistence and robust display topology handling
+- **0.2.0:** Modular architecture, versioned persistence, and conservative session restoration
 - **0.3.0:** Application/window rules and exclusions
 - **0.4.0:** Menu bar UX and configuration
 - **0.5.0:** Transition framework
 - **0.6.0:** Optional Desktop Cube-style transition
 - **1.0.0:** Stable global desktop manager
 
-These milestones are direction, not promises. See [the vision](docs/vision.md) and [architecture notes](docs/architecture.md).
+These milestones are direction, not promises. See [the vision](docs/vision.md) and the canonical [architecture document](docs/ARCHITECTURE.md).
 
 ## Safe 0.0.2 verification
 
@@ -99,3 +107,29 @@ For an external restore experiment, select a safe disposable window with **Use a
 8. Use **RECOVER MANAGED WINDOWS**, test clean application exit, and confirm no window intentionally remains parked.
 9. If safe, disconnect/reconnect a display and revoke/re-enable Accessibility. Confirm switching pauses, state is reported, and recovery remains explicit.
 10. Test minimized/fullscreen windows conservatively; confirm they are reported as unsupported rather than unexpectedly unminimized or moved.
+
+### 0.2.0 real-Mac validation after integration
+
+Run this checklist only after the 0.2.0 restoration UI is integrated, using disposable windows and a Mac with Accessibility enabled:
+
+1. Create several desktops.
+2. Assign multiple windows.
+3. Assign two windows from the same application differently.
+4. Assign one window to multiple desktops.
+5. Make one managed window sticky.
+6. Quit BlazaresSpaces cleanly.
+7. Relaunch BlazaresSpaces.
+8. Verify workspace configuration returns.
+9. Verify launch alone moves no external window.
+10. Review the detected restorable windows.
+11. Explicitly confirm one safe restoration.
+12. Verify ambiguous same-application windows are not guessed.
+13. Launch a previously missing application later.
+14. Re-run discovery and verify its missing record is reconsidered.
+15. Test restoration with three monitors.
+16. Change the display topology, if safe.
+17. Verify the conservative geometry fallback remains visible and is reported.
+18. Verify Citrix remains untouched.
+19. Verify unmanaged windows remain untouched.
+20. Use **Recover Managed Windows** and inspect all outcomes.
+21. Quit while disposable managed windows are parked and verify clean-exit recovery.

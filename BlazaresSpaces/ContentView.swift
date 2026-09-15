@@ -391,8 +391,3 @@ private extension Optional where Wrapped == Bool {
         map { $0 ? "Yes" : "No" } ?? "Unavailable"
     }
 }
-
-#Preview {
-    ContentView()
-        .environmentObject(DiagnosticsViewModel())
-}

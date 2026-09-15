@@ -392,4 +392,11 @@ struct BlazaresSpacesTests {
         let candidates = engine.membersToPark(from: manager.workspace(for: .workspace1), to: manager.workspace(for: .workspace2))
         #expect(candidates.map(\.id) == [sourceOnly.id])
     }
+
+    @Test func parkingIsAcceptedOnlyWhenActualFrameIsOutsideVisibleDisplays() {
+        let displays = [display(id: 1, frame: CGRect(x: 0, y: 0, width: 1000, height: 800))]
+        let engine = WorkspaceSwitchEngine()
+        #expect(engine.isSafelyParked(CGRect(x: 1100, y: 10, width: 300, height: 200), displays: displays))
+        #expect(!engine.isSafelyParked(CGRect(x: 900, y: 10, width: 300, height: 200), displays: displays))
+    }
 }

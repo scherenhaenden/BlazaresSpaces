@@ -196,10 +196,14 @@ struct AXExternalWindowController {
         guard let expectedIdentifier = identity.accessibilityIdentifier, !expectedIdentifier.isEmpty else {
             return .failure(.unsupported("The selected window has no usable AX runtime identifier."))
         }
-        guard let match = elements.first(where: { element in
+        let matches = elements.filter { element in
             stringAttribute(kAXRoleAttribute, of: element) == kAXWindowRole
                 && stringAttribute(kAXIdentifierAttribute, of: element) == expectedIdentifier
-        }) else { return .failure(.windowMissing) }
+        }
+        guard !matches.isEmpty else { return .failure(.windowMissing) }
+        guard matches.count == 1, let match = matches.first else {
+            return .failure(.unsupported("The AX runtime identifier is not unique; refusing to choose a window."))
+        }
         return .success(match)
     }
 

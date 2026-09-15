@@ -18,6 +18,9 @@ struct WorkspaceID: RawRepresentable, Hashable, Identifiable, Sendable, CustomSt
 
 struct WorkspaceMember: Identifiable, Equatable, Sendable {
     let id: WindowRuntimeIdentity
+    /// Durable logical identity. Runtime identity remains the compatibility ID
+    /// for the active AX session, but must never be serialized as this value.
+    let managedWindowID: ManagedWindowID
     let authorizedWindow: AuthorizedExternalWindow
     var logicalSnapshot: WindowSnapshot
     /// Explicit memberships. `visibleOnAllWorkspaces` is intentionally separate
@@ -28,12 +31,14 @@ struct WorkspaceMember: Identifiable, Equatable, Sendable {
     var parkedFrame: CGRect?
 
     init(
+        managedWindowID: ManagedWindowID = ManagedWindowID(),
         authorizedWindow: AuthorizedExternalWindow,
         logicalSnapshot: WindowSnapshot,
         workspaceIDs: Set<WorkspaceID> = [],
         visibleOnAllWorkspaces: Bool = false
     ) {
         id = authorizedWindow.runtimeIdentity
+        self.managedWindowID = managedWindowID
         self.authorizedWindow = authorizedWindow
         self.logicalSnapshot = logicalSnapshot
         self.workspaceIDs = workspaceIDs
@@ -62,6 +67,9 @@ struct WorkspaceManager: Equatable, Sendable {
         .workspace2: LogicalWorkspace(id: .workspace2, name: "Desktop 2")
     ]
     private(set) var workspaceOrder: [WorkspaceID] = [.workspace1, .workspace2]
+    /// The one canonical copy of every managed member. `LogicalWorkspace.members`
+    /// values returned by `workspace(for:)` are resolved projections only.
+    private var membersByManagedWindowID: [ManagedWindowID: WorkspaceMember] = [:]
 
     var activeWorkspace: LogicalWorkspace { workspace(for: activeWorkspaceID) }
     var workspaceIDs: [WorkspaceID] { workspaceOrder.filter { workspaces[$0] != nil } }
@@ -93,20 +101,30 @@ struct WorkspaceManager: Equatable, Sendable {
     }
 
     func members(in workspaceID: WorkspaceID) -> [WorkspaceMember] {
-        var resolved: [WindowRuntimeIdentity: WorkspaceMember] = [:]
-        for workspace in workspaces.values {
-            for member in workspace.members where member.visibleOnAllWorkspaces || member.workspaceIDs.contains(workspaceID) {
-                resolved[member.id] = member
-            }
-        }
-        return resolved.values.sorted {
-            ($0.authorizedWindow.applicationName, $0.id.processIdentifier, $0.id.enumerationIndex)
-                < ($1.authorizedWindow.applicationName, $1.id.processIdentifier, $1.id.enumerationIndex)
+        guard workspaces[workspaceID] != nil else { return [] }
+        return membersByManagedWindowID.values.filter {
+            $0.visibleOnAllWorkspaces || $0.workspaceIDs.contains(workspaceID)
+        }.sorted {
+            (
+                $0.authorizedWindow.applicationName,
+                $0.id.processIdentifier,
+                $0.id.enumerationIndex,
+                $0.managedWindowID.rawValue.uuidString
+            ) < (
+                $1.authorizedWindow.applicationName,
+                $1.id.processIdentifier,
+                $1.id.enumerationIndex,
+                $1.managedWindowID.rawValue.uuidString
+            )
         }
     }
 
     func member(for identity: WindowRuntimeIdentity) -> WorkspaceMember? {
-        allMembers.first(where: { $0.id == identity })
+        membersByManagedWindowID.values.first(where: { $0.id == identity })
+    }
+
+    func member(for managedWindowID: ManagedWindowID) -> WorkspaceMember? {
+        membersByManagedWindowID[managedWindowID]
     }
 
     func workspaceContaining(_ identity: WindowRuntimeIdentity) -> Set<WorkspaceID> {
@@ -167,8 +185,9 @@ struct WorkspaceManager: Equatable, Sendable {
         var order: [WorkspaceID] = []
         for item in configuration.workspaces {
             let id = WorkspaceID(item.id)
-            let existingMembers = workspaces[id]?.members ?? []
-            configured[id] = LogicalWorkspace(id: id, name: item.name, members: existingMembers)
+            guard configured[id] == nil else { continue }
+            let trimmedName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            configured[id] = LogicalWorkspace(id: id, name: trimmedName.isEmpty ? item.id : trimmedName)
             order.append(id)
         }
         if order.isEmpty { return }
@@ -177,6 +196,14 @@ struct WorkspaceManager: Equatable, Sendable {
         activeWorkspaceID = order.contains(WorkspaceID(configuration.activeWorkspaceID))
             ? WorkspaceID(configuration.activeWorkspaceID)
             : order[0]
+        for (managedWindowID, var member) in membersByManagedWindowID {
+            member.workspaceIDs.formIntersection(Set(order))
+            if member.workspaceIDs.isEmpty && !member.visibleOnAllWorkspaces {
+                membersByManagedWindowID.removeValue(forKey: managedWindowID)
+            } else {
+                membersByManagedWindowID[managedWindowID] = member
+            }
+        }
     }
 
     var configuration: Configuration { Configuration(manager: self) }
@@ -186,6 +213,9 @@ struct WorkspaceManager: Equatable, Sendable {
     /// closed or destroyed by this operation.
     mutating func deleteWorkspace(_ id: WorkspaceID, moveExclusiveMembersTo destination: WorkspaceID? = nil) -> Bool {
         guard workspaces[id] != nil, workspaceOrder.count > 1 else { return false }
+        if let destination {
+            guard destination != id, workspaces[destination] != nil else { return false }
+        }
         guard id != activeWorkspaceID || destination != nil else { return false }
         let affected = allMembers.filter { !$0.visibleOnAllWorkspaces && $0.workspaceIDs == [id] }
         if !affected.isEmpty {
@@ -197,7 +227,7 @@ struct WorkspaceManager: Equatable, Sendable {
         removeMembershipFromAllMembers(id)
         workspaces.removeValue(forKey: id)
         workspaceOrder.removeAll { $0 == id }
-        if activeWorkspaceID == id { activeWorkspaceID = workspaceOrder[0] }
+        if activeWorkspaceID == id { activeWorkspaceID = destination ?? workspaceOrder[0] }
         return true
     }
 
@@ -213,8 +243,7 @@ struct WorkspaceManager: Equatable, Sendable {
         var updated = self.member(for: member.id) ?? member
         updated.workspaceIDs = [workspaceID]
         updated.visibleOnAllWorkspaces = false
-        replaceMemberEverywhere(updated)
-        ensureMemberPresent(updated, in: workspaceID)
+        storeCanonical(updated)
     }
 
     /// ADD TO / SHOW ON WORKSPACE: retain existing memberships.
@@ -222,44 +251,41 @@ struct WorkspaceManager: Equatable, Sendable {
         guard workspaces[workspaceID] != nil else { return }
         var updated = self.member(for: member.id) ?? member
         updated.workspaceIDs.insert(workspaceID)
-        replaceMemberEverywhere(updated)
-        ensureMemberPresent(updated, in: workspaceID)
+        storeCanonical(updated)
     }
 
     mutating func setVisibleOnAllWorkspaces(_ member: WorkspaceMember, visible: Bool) {
         var updated = self.member(for: member.id) ?? member
         updated.visibleOnAllWorkspaces = visible
-        replaceMemberEverywhere(updated)
-        if visible {
-            for id in workspaceOrder { ensureMemberPresent(updated, in: id) }
-        }
+        storeCanonical(updated)
     }
 
     mutating func replaceMember(_ member: WorkspaceMember, in workspaceID: WorkspaceID) {
-        replaceMemberEverywhere(member)
-        ensureMemberPresent(member, in: workspaceID)
+        guard workspaces[workspaceID] != nil else { return }
+        storeCanonical(member)
     }
 
     mutating func replaceWorkspace(_ workspace: LogicalWorkspace) {
-        guard workspaces[workspace.id] != nil else { return }
-        var stored = workspace
-        stored.members = workspace.members.filter { !$0.visibleOnAllWorkspaces || $0.workspaceIDs.contains(workspace.id) }
+        guard var stored = workspaces[workspace.id] else { return }
+        stored.name = workspace.name
+        stored.members = []
         workspaces[workspace.id] = stored
+        for member in workspace.members where membersByManagedWindowID[member.managedWindowID] != nil {
+            storeCanonical(member)
+        }
     }
 
     @discardableResult
     mutating func remove(_ identity: WindowRuntimeIdentity) -> WorkspaceMember? {
         let removed = member(for: identity)
-        for id in workspaceOrder { workspaces[id]?.members.removeAll { $0.id == identity } }
+        if let removed { membersByManagedWindowID.removeValue(forKey: removed.managedWindowID) }
         return removed
     }
 
     var allMembers: [WorkspaceMember] {
-        var unique: [WindowRuntimeIdentity: WorkspaceMember] = [:]
-        for workspace in workspaces.values {
-            for member in workspace.members { unique[member.id] = member }
+        membersByManagedWindowID.values.sorted {
+            $0.managedWindowID.rawValue.uuidString < $1.managedWindowID.rawValue.uuidString
         }
-        return Array(unique.values)
     }
 
     private mutating func addMembership(_ identity: WindowRuntimeIdentity, to workspaceID: WorkspaceID) {
@@ -271,27 +297,25 @@ struct WorkspaceManager: Equatable, Sendable {
         for member in allMembers {
             var updated = member
             updated.workspaceIDs.remove(workspaceID)
-            replaceMemberEverywhere(updated)
+            storeCanonical(updated)
         }
     }
 
-    private mutating func replaceMemberEverywhere(_ member: WorkspaceMember) {
-        for id in workspaceOrder {
-            guard var workspace = workspaces[id] else { continue }
-            for index in workspace.members.indices where workspace.members[index].id == member.id {
-                workspace.members[index] = member
-            }
-            workspaces[id] = workspace
-        }
-    }
-
-    private mutating func ensureMemberPresent(_ member: WorkspaceMember, in workspaceID: WorkspaceID) {
-        guard var workspace = workspaces[workspaceID] else { return }
-        if let index = workspace.members.firstIndex(where: { $0.id == member.id }) {
-            workspace.members[index] = member
+    private mutating func storeCanonical(_ member: WorkspaceMember) {
+        if let existing = self.member(for: member.id), existing.managedWindowID != member.managedWindowID {
+            var canonical = member
+            canonical = WorkspaceMember(
+                managedWindowID: existing.managedWindowID,
+                authorizedWindow: member.authorizedWindow,
+                logicalSnapshot: member.logicalSnapshot,
+                workspaceIDs: member.workspaceIDs,
+                visibleOnAllWorkspaces: member.visibleOnAllWorkspaces
+            )
+            canonical.isParked = member.isParked
+            canonical.parkedFrame = member.parkedFrame
+            membersByManagedWindowID[existing.managedWindowID] = canonical
         } else {
-            workspace.members.append(member)
+            membersByManagedWindowID[member.managedWindowID] = member
         }
-        workspaces[workspaceID] = workspace
     }
 }

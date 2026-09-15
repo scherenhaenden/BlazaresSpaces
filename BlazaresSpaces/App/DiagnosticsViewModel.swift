@@ -23,6 +23,8 @@ final class DiagnosticsViewModel: ObservableObject {
     @Published private(set) var workspaceTopologyChanged = false
     @Published private(set) var globalShortcutsEnabled = false
     @Published private(set) var shortcutConfiguration = GlobalShortcutConfiguration()
+    @Published private(set) var persistenceStatus: SessionPersistenceStatus = .loading
+    @Published private(set) var restorationItems: [RestorationReviewItem] = []
 
     private let permissionManager = AccessibilityPermissionManager()
     private let displayManager = DisplayManager()
@@ -33,6 +35,9 @@ final class DiagnosticsViewModel: ObservableObject {
     private let workspaceConfigurationStore = WorkspaceConfigurationStore()
     private let shortcutConfigurationStore = GlobalShortcutConfigurationStore()
     private let shortcutManager = GlobalShortcutManager()
+    private let stateStore = AtomicJSONWorkspaceStateStore()
+    private let restorationCoordinator = SessionRestorationCoordinator()
+    private var persistedState: PersistedStateV1?
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BlazaresSpaces", category: "Diagnostics")
     private var switchQueue = WorkspaceSwitchRequestQueue()
     private var screenParametersObserver: NSObjectProtocol?
@@ -43,6 +48,9 @@ final class DiagnosticsViewModel: ObservableObject {
             workspaceManager.apply(configuration: configuration)
         }
         shortcutConfiguration = shortcutConfigurationStore.load()
+        Task { @MainActor [weak self] in
+            await self?.loadPersistedState()
+        }
         screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -83,6 +91,7 @@ final class DiagnosticsViewModel: ObservableObject {
             let result = windowDiscovery.discover(displays: displays)
             windows = result.windows
             issues = result.issues
+            evaluateRestoration()
         } else {
             windows = []
             issues = []
@@ -95,6 +104,92 @@ final class DiagnosticsViewModel: ObservableObject {
         }
         if accessibilityGranted && !globalShortcutsEnabled { startGlobalShortcuts() }
         lastRefresh = Date()
+    }
+
+    private func loadPersistedState() async {
+        switch await stateStore.load() {
+        case .missing:
+            persistenceStatus = .missing
+        case let .loaded(state):
+            persistedState = state
+            workspaceManager.apply(configuration: WorkspaceManager.Configuration(persisted: state))
+            shortcutConfiguration = GlobalShortcutConfiguration(persisted: state.shortcuts)
+            persistenceStatus = .loaded
+            evaluateRestoration()
+        case let .unsupported(version):
+            persistenceStatus = .unsupported(schemaVersion: version)
+        case let .corrupted(_, description):
+            persistenceStatus = .corrupted(description: description)
+        case let .ioFailure(description):
+            persistenceStatus = .ioFailure(description: description)
+        }
+    }
+
+    private func evaluateRestoration() {
+        guard let persistedState else { return }
+        restorationItems = restorationCoordinator.review(persistedState, windows: windows)
+    }
+
+    func resetPersistedConfiguration() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            switch await stateStore.reset() {
+            case .success:
+                persistedState = nil
+                restorationItems = []
+                persistenceStatus = .missing
+                actionStatus = "Saved configuration reset. No external window was changed."
+            case let .failure(error):
+                actionStatus = "Could not reset saved configuration: \(error)"
+            }
+        }
+    }
+
+    func confirmRestoration(_ item: RestorationReviewItem) {
+        guard persistenceStatus.isSafeForExternalMutation,
+              item.canConfirm,
+              let candidate = item.candidate,
+              let state = persistedState,
+              let record = state.managedWindows.first(where: { $0.id == item.id }) else {
+            actionStatus = "Only high-confidence matches can be confirmed after saved-state validation."
+            return
+        }
+        guard case let .success(authorized) = WindowAuthorization.authorize(candidate, policy: managementPolicy) else {
+            actionStatus = "The candidate is no longer eligible; no restoration was performed."
+            evaluateRestoration()
+            return
+        }
+        let geometry = DisplayTopologyMapper().restorationPlan(for: record.logicalGeometry, currentDisplays: displays)
+        let frame = geometry?.frame ?? record.logicalGeometry.absolute.cgRect
+        let snapshot = WindowSnapshot(
+            runtimeIdentity: candidate.runtimeIdentity,
+            applicationName: candidate.applicationName,
+            bundleIdentifier: candidate.bundleIdentifier,
+            title: nil,
+            role: candidate.role,
+            subrole: candidate.subrole,
+            frame: frame,
+            isMinimized: candidate.isMinimized,
+            isFullscreen: candidate.isFullscreen,
+            displayID: geometry?.displayID ?? candidate.displayID
+        )
+        let member = WorkspaceMember(
+            managedWindowID: record.id,
+            authorizedWindow: authorized,
+            logicalSnapshot: snapshot,
+            workspaceIDs: Set(record.workspaceIDs.map(WorkspaceID.init)),
+            visibleOnAllWorkspaces: record.sticky
+        )
+        workspaceManager.replaceMember(member, in: workspaceManager.activeWorkspaceID)
+        let result = externalWindowController.restore(authorized, requested: snapshot)
+        restoreReport = WindowRestoreReport(results: [result])
+        if result.status == .restoredExactly || result.status == .restoredWithAdjustment {
+            restorationItems.removeAll { $0.id == item.id }
+            persistWorkspaceConfiguration()
+            actionStatus = "Restored and re-associated \(candidate.applicationName) after explicit confirmation."
+        } else {
+            actionStatus = "Association was confirmed, but physical restoration was not completed: \(result.message)"
+        }
     }
 
     func requestAccessibilityAccess() {
@@ -184,7 +279,7 @@ final class DiagnosticsViewModel: ObservableObject {
             return
         }
         if let member = workspaceManager.member(for: authorized.runtimeIdentity) {
-            actionStatus = "(window.applicationName) is already managed."
+            actionStatus = "\(window.applicationName) is already managed."
             if member.workspaceIDs.isEmpty && !member.visibleOnAllWorkspaces {
                 workspaceManager.moveToWorkspace(member, workspaceID: workspaceManager.activeWorkspaceID)
             }
@@ -196,7 +291,8 @@ final class DiagnosticsViewModel: ObservableObject {
             workspaceIDs: [workspaceManager.activeWorkspaceID]
         )
         workspaceManager.addToWorkspace(member, workspaceID: workspaceManager.activeWorkspaceID)
-        actionStatus = "Managing (window.applicationName) on (workspaceName(workspaceManager.activeWorkspaceID))."
+        persistWorkspaceConfiguration()
+        actionStatus = "Managing \(window.applicationName) on \(workspaceName(workspaceManager.activeWorkspaceID))."
     }
 
     func workspaceMembership(for window: WindowSnapshot) -> Set<WorkspaceID> {
@@ -221,6 +317,7 @@ final class DiagnosticsViewModel: ObservableObject {
             workspaceManager.addToWorkspace(member, workspaceID: workspaceID)
             actionStatus = "Added \(window.applicationName) to \(workspaceName(workspaceID)) without removing existing memberships."
         }
+        persistWorkspaceConfiguration()
     }
 
     func stopManagingWindow(_ window: WindowSnapshot) {
@@ -241,7 +338,8 @@ final class DiagnosticsViewModel: ObservableObject {
             }
         }
         workspaceManager.remove(window.runtimeIdentity)
-        actionStatus = "Stopped managing (window.applicationName); the application and window remain open."
+        persistWorkspaceConfiguration()
+        actionStatus = "Stopped managing \(window.applicationName); the application and window remain open."
     }
 
     func setWindowVisibleOnAllWorkspaces(_ window: WindowSnapshot, visible: Bool) {
@@ -253,10 +351,15 @@ final class DiagnosticsViewModel: ObservableObject {
         let member = workspaceManager.member(for: authorized.runtimeIdentity)
             ?? WorkspaceMember(authorizedWindow: authorized, logicalSnapshot: window)
         workspaceManager.setVisibleOnAllWorkspaces(member, visible: visible)
+        persistWorkspaceConfiguration()
         actionStatus = visible ? "\(window.applicationName) will remain visible on all current and future workspaces." : "\(window.applicationName) is no longer sticky."
     }
 
     func enterExperimentalWorkspaceMode() {
+        guard persistenceStatus.isSafeForExternalMutation else {
+            actionStatus = "Resolve the saved-configuration state before enabling external window switching."
+            return
+        }
         guard accessibilityGranted else {
             actionStatus = "Accessibility permission is required before enabling desktop switching."
             return
@@ -326,6 +429,7 @@ final class DiagnosticsViewModel: ObservableObject {
         if let source = execution.sourceWorkspace { workspaceManager.replaceWorkspace(source) }
         workspaceManager.replaceWorkspace(execution.targetWorkspace)
         _ = workspaceManager.activate(targetID)
+        persistWorkspaceConfiguration()
         workspaceSwitchResult = execution.result
         actionStatus = execution.result.isDegraded
             ? "Switched to \(workspaceName(targetID)) with recoverable partial results; inspect the report below."
@@ -386,15 +490,20 @@ final class DiagnosticsViewModel: ObservableObject {
     }
 
     func recoverManagedWindows() {
+        _ = performManagedWindowRecovery()
+    }
+
+    @discardableResult
+    private func performManagedWindowRecovery() -> Bool {
         guard accessibilityGranted else {
             workspaceSwitchState = .degraded(message: "Accessibility permission is unavailable.")
             actionStatus = "Recovery is paused until Accessibility permission is restored."
-            return
+            return false
         }
-        let members = workspaceManager.allMembers
+        let members = workspaceManager.allMembers.filter(\.isParked)
         guard !members.isEmpty else {
             actionStatus = "No managed windows require recovery."
-            return
+            return true
         }
         workspaceSwitchState = .recovering
         let results = members.map { member -> WorkspaceWindowResult in
@@ -416,11 +525,15 @@ final class DiagnosticsViewModel: ObservableObject {
         workspaceSwitchState = workspaceTopologyChanged ? .degraded(message: "Recovery completed with partial results.") : .idle
         actionStatus = "Recovery completed: \(workspaceSwitchResult?.restoredCount ?? 0) exact, \(workspaceSwitchResult?.adjustedCount ?? 0) adjusted, \(workspaceSwitchResult?.failedCount ?? 0) failed."
         refresh()
+        return !workspaceTopologyChanged
     }
 
     func exitExperimentalWorkspaceMode() {
         guard experimentalWorkspaceModeEnabled else { return }
-        recoverManagedWindows()
+        guard performManagedWindowRecovery() else {
+            actionStatus = "Desktop switching remains enabled because one or more parked windows could not be recovered."
+            return
+        }
         experimentalWorkspaceModeEnabled = false
         actionStatus = "Desktop switching exited after explicit recovery."
     }
@@ -440,6 +553,7 @@ final class DiagnosticsViewModel: ObservableObject {
     func setGlobalShortcutsEnabled(_ enabled: Bool) {
         shortcutConfiguration.enabled = enabled
         shortcutConfigurationStore.save(shortcutConfiguration)
+        persistWorkspaceConfiguration()
         if enabled { startGlobalShortcuts() } else { shortcutManager.stop(); globalShortcutsEnabled = false }
     }
 
@@ -462,6 +576,21 @@ final class DiagnosticsViewModel: ObservableObject {
 
     private func persistWorkspaceConfiguration() {
         workspaceConfigurationStore.save(workspaceManager.configuration)
+        let state = PersistedStateV1.make(from: workspaceManager, shortcuts: shortcutConfiguration, displays: displays)
+        persistedState = state
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            switch await stateStore.save(state) {
+            case .saved:
+                if case .loading = persistenceStatus { persistenceStatus = .loaded }
+            case let .validationFailed(issues):
+                persistenceStatus = .ioFailure(description: issues.map(\.message).joined(separator: " "))
+            case let .refusedToOverwriteExistingState(description):
+                persistenceStatus = .corrupted(description: description)
+            case let .ioFailure(description):
+                persistenceStatus = .ioFailure(description: description)
+            }
+        }
     }
 
     private func recoverForTermination() {

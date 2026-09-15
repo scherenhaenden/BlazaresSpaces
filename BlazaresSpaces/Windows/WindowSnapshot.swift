@@ -24,16 +24,6 @@ struct WindowSnapshot: Identifiable, Equatable, Sendable {
     let displayID: CGDirectDisplayID?
 }
 
-/// A future persistence boundary. It intentionally does not claim that a PID or
-/// runtime AX element remains valid after an application restart.
-struct PersistedWindowDescriptor: Equatable, Sendable {
-    let applicationName: String
-    let bundleIdentifier: String?
-    let title: String?
-    let displayID: CGDirectDisplayID?
-    let frame: CGRect
-}
-
 struct WindowDiscoveryIssue: Identifiable, Equatable, Sendable {
     let id = UUID()
     let applicationName: String

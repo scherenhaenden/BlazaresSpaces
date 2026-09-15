@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 struct WorkspaceSwitchExecution: Equatable, Sendable {
@@ -9,13 +10,16 @@ struct WorkspaceSwitchExecution: Equatable, Sendable {
 struct WorkspaceSwitchEngine {
     let controller: AXExternalWindowController
     let parkingCalculator: ParkingPositionCalculator
+    let planner: WorkspaceSwitchPlanner
 
     init(
         controller: AXExternalWindowController = AXExternalWindowController(),
-        parkingCalculator: ParkingPositionCalculator = ParkingPositionCalculator()
+        parkingCalculator: ParkingPositionCalculator = ParkingPositionCalculator(),
+        planner: WorkspaceSwitchPlanner = WorkspaceSwitchPlanner()
     ) {
         self.controller = controller
         self.parkingCalculator = parkingCalculator
+        self.planner = planner
     }
 
     func parkInactiveWorkspace(
@@ -29,9 +33,10 @@ struct WorkspaceSwitchEngine {
         var captureDuration = 0.0
         var parkingDuration = 0.0
 
-        let candidates = workspace.members.filter {
-            !$0.isParked && !$0.visibleOnAllWorkspaces && !excludingVisibleIDs.contains($0.id)
-        }
+        let candidates = planner.membersToPark(
+            in: workspace,
+            excludingVisibleRuntimeIDs: excludingVisibleIDs
+        )
         for (index, member) in candidates.enumerated() {
             let captureStart = Date()
             let current: WindowSnapshot?
@@ -79,8 +84,10 @@ struct WorkspaceSwitchEngine {
             let mapped = map(parking, member: member, workspaceID: workspace.id, operation: .park)
             results.append(mapped)
             if parking.status == .restoredExactly || parking.status == .restoredWithAdjustment,
-               let actualFrame = parking.actualFrame {
+               let actualFrame = parking.actualFrame,
+               isSafelyParked(actualFrame, displays: displays) {
                 var updatedMember = member
+                updatedMember.logicalSnapshot = current
                 updatedMember.isParked = true
                 updatedMember.parkedFrame = actualFrame
                 if let memberIndex = updated.members.firstIndex(where: { $0.id == updatedMember.id }) {
@@ -118,7 +125,8 @@ struct WorkspaceSwitchEngine {
         var restoreDuration = 0.0
         var capturedSnapshots: [WindowRuntimeIdentity: WindowSnapshot] = [:]
 
-        let membersToPark = membersToPark(from: source, to: target)
+        let plan = planner.plan(from: source, to: target)
+        let membersToPark = plan.membersToPark
 
         for member in membersToPark {
             let captureStart = Date()
@@ -180,17 +188,19 @@ struct WorkspaceSwitchEngine {
             let parking = controller.park(member.authorizedWindow, current: current, at: parkingFrame.origin)
             parkingDuration += Date().timeIntervalSince(parkingStart)
             results.append(map(parking, member: member, workspaceID: source.id, operation: .park))
-            if parking.status == .restoredExactly || parking.status == .restoredWithAdjustment {
+            if (parking.status == .restoredExactly || parking.status == .restoredWithAdjustment),
+               let actualFrame = parking.actualFrame,
+               isSafelyParked(actualFrame, displays: displays) {
                 var updatedMember = updatedSourceMember(updatedSource, id: member.id, workspaceID: source.id) ?? member
                 updatedMember.isParked = true
-                updatedMember.parkedFrame = parking.actualFrame
+                updatedMember.parkedFrame = actualFrame
                 if let memberIndex = updatedSource.members.firstIndex(where: { $0.id == updatedMember.id }) {
                     updatedSource.members[memberIndex] = updatedMember
                 }
             }
         }
 
-        let membersToRestore = membersToRestore(from: source, to: target)
+        let membersToRestore = plan.membersToRestore
         for member in membersToRestore {
             let restoreStart = Date()
             let restore = controller.restore(member.authorizedWindow, requested: member.logicalSnapshot)
@@ -266,17 +276,17 @@ struct WorkspaceSwitchEngine {
 
     /// Pure transition policy, kept separate so it can be tested without AX.
     func membersToPark(from source: LogicalWorkspace, to target: LogicalWorkspace) -> [WorkspaceMember] {
-        let targetIDs = Set(target.members.map(\.id))
-        return source.members.filter {
-            !$0.isParked && !$0.visibleOnAllWorkspaces && !targetIDs.contains($0.id)
-        }
+        planner.plan(from: source, to: target).membersToPark
     }
 
     func membersToRestore(from source: LogicalWorkspace, to target: LogicalWorkspace) -> [WorkspaceMember] {
-        let sourceIDs = Set(source.members.map(\.id))
-        return target.members.filter {
-            !$0.visibleOnAllWorkspaces && (!sourceIDs.contains($0.id) || $0.isParked)
-        }
+        planner.plan(from: source, to: target).membersToRestore
+    }
+
+    /// Applications may clamp an off-screen request back onto a visible display.
+    /// Such a window was not deactivated and must never enter the parked ledger.
+    func isSafelyParked(_ frame: CGRect, displays: [DisplaySnapshot]) -> Bool {
+        !displays.contains { $0.visibleFrame.intersects(frame) }
     }
 
     private func map(_ error: ExternalWindowOperationError) -> WorkspaceWindowOutcome {
