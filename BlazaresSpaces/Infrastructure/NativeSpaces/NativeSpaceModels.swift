@@ -2,14 +2,14 @@ import Foundation
 
 /// Runtime-only description of a native Mission Control space. Native IDs are
 /// intentionally not persisted and are never used as Virtual Space identity.
-enum NativeSpaceKind: Equatable, Sendable {
+nonisolated enum NativeSpaceKind: Equatable, Sendable {
     case userDesktop
     case fullScreen
     case tiled
     case unknown(rawValue: Int)
 }
 
-struct NativeSpaceDescriptor: Equatable, Sendable {
+nonisolated struct NativeSpaceDescriptor: Equatable, Sendable {
     let runtimeID: UInt64
     let uuid: String?
     let displayIdentifier: String
@@ -18,26 +18,28 @@ struct NativeSpaceDescriptor: Equatable, Sendable {
     let isCurrent: Bool
 }
 
-struct NativeDisplayDescriptor: Equatable, Sendable {
+nonisolated struct NativeDisplayDescriptor: Equatable, Sendable {
     let displayIdentifier: String
     let currentSpaceRuntimeID: UInt64?
 }
 
-struct NativeSpaceTopology: Equatable, Sendable {
+nonisolated struct NativeSpaceTopology: Equatable, Sendable {
     let displays: [NativeDisplayDescriptor]
     let spaces: [NativeSpaceDescriptor]
     let separateSpaces: Bool
 }
 
-struct NativeVirtualSpaceBinding: Equatable, Sendable {
+nonisolated struct NativeVirtualSpaceBinding: Equatable, Sendable {
     let virtualSpacePosition: Int
     let spacesByDisplay: [String: NativeSpaceDescriptor]
 }
 
 /// Positional binding deliberately ignores full-screen/tiled/unknown entries.
 /// Unknown native types are not guessed into ordinary desktop positions.
-struct NativeSpaceTopologyMapper: Sendable {
-    func bindings(for topology: NativeSpaceTopology) -> [NativeVirtualSpaceBinding] {
+nonisolated struct NativeSpaceTopologyMapper: Sendable {
+    nonisolated init() {}
+
+    nonisolated func bindings(for topology: NativeSpaceTopology) -> [NativeVirtualSpaceBinding] {
         let displayIDs = topology.displays.map(\.displayIdentifier)
         let ordinaryByDisplay = Dictionary(grouping: topology.spaces.filter { $0.kind == .userDesktop }, by: \.displayIdentifier)
             .mapValues { spaces in spaces.sorted { $0.position < $1.position } }
@@ -56,10 +58,10 @@ struct NativeSpaceTopologyMapper: Sendable {
 }
 
 protocol NativeSpacesProviding: Sendable {
-    func readTopology() -> Result<NativeSpaceTopology, NativeSpacesReadError>
+    nonisolated func readTopology() -> Result<NativeSpaceTopology, NativeSpacesReadError>
 }
 
-enum NativeSpacesReadError: Error, Equatable, Sendable {
+nonisolated enum NativeSpacesReadError: Error, Equatable, Sendable {
     case unavailable(String)
     case malformedData(String)
 }
@@ -67,7 +69,7 @@ enum NativeSpacesReadError: Error, Equatable, Sendable {
 /// Production-safe placeholder until the private SkyLight bridge has verified
 /// symbols and signatures for the running macOS release. It performs no calls
 /// and cannot mutate native Spaces.
-struct UnavailableNativeSpacesProvider: NativeSpacesProviding {
+nonisolated struct UnavailableNativeSpacesProvider: NativeSpacesProviding {
     let reason: String
 
     nonisolated init(reason: String = "Native SkyLight read bridge is experimental and unavailable") {
@@ -80,7 +82,7 @@ struct UnavailableNativeSpacesProvider: NativeSpacesProviding {
 }
 
 private extension Array {
-    subscript(safe index: Index) -> Element? {
+    nonisolated subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
 }

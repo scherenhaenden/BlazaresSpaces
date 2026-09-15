@@ -35,6 +35,16 @@ protocol VirtualSpaceActivationStrategyProviding: Sendable {
     func strategy(for mode: VirtualSpaceActivationMode) -> VirtualSpaceActivationStrategy
 }
 
+enum NativeSpaceActivationResult: Equatable, Sendable {
+    case activated
+    case unavailable(String)
+    case failed(String)
+}
+
+protocol NativeSpacesControlling: Sendable {
+    nonisolated func activate(virtualPosition: Int, topology: NativeSpaceTopology) -> NativeSpaceActivationResult
+}
+
 struct LogicalVirtualSpaceActivationAdapter: VirtualSpaceActivationStrategyProviding {
     nonisolated init() {}
 

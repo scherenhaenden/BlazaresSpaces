@@ -88,6 +88,7 @@ final class DiagnosticsViewModel: ObservableObject {
     var workspaceManager: WorkspaceManager { service.workspaceManager }
     var workspaceIDs: [WorkspaceID] { service.workspaceManager.workspaceIDs }
     var experimentalWorkspaceModeEnabled: Bool { service.experimentalWorkspaceModeEnabled }
+    var experimentalNativeSpacesEnabled: Bool { service.experimentalNativeSpacesEnabled }
     var workspaceSwitchResult: WorkspaceSwitchResult? { service.workspaceSwitchResult }
     var workspaceSwitchState: WorkspaceSwitchState { service.workspaceSwitchState }
     var workspaceTopologyChanged: Bool { service.workspaceTopologyChanged }
@@ -122,6 +123,10 @@ final class DiagnosticsViewModel: ObservableObject {
 
     func setFocusedWindowSticky(_ visible: Bool) {
         _ = service.setFocusedWindowSticky(visible)
+    }
+
+    func setExperimentalNativeSpacesEnabled(_ enabled: Bool) {
+        service.setExperimentalNativeSpacesEnabled(enabled)
     }
 
     var externalTestModeEnabled: Bool {

@@ -112,6 +112,13 @@ struct DailyDriverDashboardView: View {
                     ))
                     .toggleStyle(.switch)
                     .disabled(!model.accessibilityGranted)
+
+                    Toggle("Experimental Native Spaces", isOn: Binding(
+                        get: { model.experimentalNativeSpacesEnabled },
+                        set: { model.setExperimentalNativeSpacesEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+                    .disabled(!model.accessibilityGranted)
                 }
 
                 if model.workspaceTopologyChanged {
