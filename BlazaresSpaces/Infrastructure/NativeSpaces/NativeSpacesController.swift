@@ -89,12 +89,23 @@ struct NativeSpacesController: NativeSpacesControlling {
     private nonisolated func postControlArrow(_ keyCode: CGKeyCode, count: Int) -> Bool {
         guard let source = CGEventSource(stateID: .hidSystemState) else { return false }
         for _ in 0..<count {
-            guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+            // Mission Control is more reliable when it receives the actual
+            // modifier key transition, rather than only an arrow event with
+            // the Control flag attached. This also mirrors a physical key
+            // press and works with the user's enabled Control-arrow shortcut.
+            guard let controlDown = CGEvent(keyboardEventSource: source, virtualKey: 59, keyDown: true),
+                  let controlUp = CGEvent(keyboardEventSource: source, virtualKey: 59, keyDown: false),
+                  let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
                   let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else { return false }
+            controlDown.post(tap: .cghidEventTap)
+            Thread.sleep(forTimeInterval: 0.01)
             down.flags = .maskControl
             up.flags = .maskControl
             down.post(tap: .cghidEventTap)
             up.post(tap: .cghidEventTap)
+            Thread.sleep(forTimeInterval: 0.01)
+            controlUp.flags = []
+            controlUp.post(tap: .cghidEventTap)
         }
         return true
     }
