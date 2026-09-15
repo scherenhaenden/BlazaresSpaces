@@ -16,7 +16,11 @@ struct NativeSpacesController: NativeSpacesControlling {
     nonisolated func activate(virtualPosition: Int, topology: NativeSpaceTopology) -> NativeSpaceActivationResult {
         guard virtualPosition > 0 else { return .failed("Virtual Space position must be positive") }
         let bindings = NativeSpaceTopologyMapper().bindings(for: topology)
-        guard let current = topology.spaces.first(where: { $0.isCurrent && $0.kind == .userDesktop }),
+        let activeDisplayID = activeDisplayIdentifier(in: topology)
+        let current = topology.spaces.first {
+            $0.isCurrent && $0.kind == .userDesktop && $0.displayIdentifier == activeDisplayID
+        } ?? topology.spaces.first(where: { $0.isCurrent && $0.kind == .userDesktop })
+        guard let current,
               let currentPosition = bindings.first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == current.runtimeID } })?.virtualSpacePosition else {
             return .failed("Current native desktop could not be resolved")
         }
@@ -51,6 +55,18 @@ struct NativeSpacesController: NativeSpacesControlling {
             return .failed("Transition occurred but the target native Space was not verified on display \(current.displayIdentifier)")
         }
         return .activated
+    }
+
+    private nonisolated func activeDisplayIdentifier(in topology: NativeSpaceTopology) -> String? {
+        let mouseLocation = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }),
+              let displayNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        let displayID = CGDirectDisplayID(displayNumber.uint32Value)
+        guard let uuid = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() else { return nil }
+        let identifier = CFUUIDCreateString(nil, uuid) as String
+        return topology.displays.contains(where: { $0.displayIdentifier == identifier }) ? identifier : nil
     }
 
     private nonisolated func postControlArrow(_ keyCode: CGKeyCode, count: Int) -> Bool {
