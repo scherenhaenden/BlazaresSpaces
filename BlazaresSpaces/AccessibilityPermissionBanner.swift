@@ -37,6 +37,17 @@ struct AccessibilityPermissionBanner: View {
                 Divider()
             }
             .accessibilityIdentifier("accessibilityPermissionBanner")
+            .task {
+                // macOS does not notify the app when Accessibility permission is
+                // granted in System Settings. While this banner is visible, poll
+                // the permission state lightly so the banner disappears as soon
+                // as the permission has been granted.
+                while !Task.isCancelled && !model.accessibilityGranted {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { break }
+                    model.refresh()
+                }
+            }
         }
     }
 }
