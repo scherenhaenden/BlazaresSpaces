@@ -20,7 +20,7 @@ struct BlazaresSpacesApp: App {
         .defaultSize(width: 980, height: 760)
 
         MenuBarExtra {
-            MenuBarControllerView()
+            CompactMenuBarView()
                 .environmentObject(model)
         } label: {
             Label(model.workspaceName(model.workspaceManager.activeWorkspaceID), systemImage: "square.3.layers.3d")
