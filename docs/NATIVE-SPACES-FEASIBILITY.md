@@ -3,287 +3,213 @@
 Estado: investigación abierta para BlazaresSpaces 0.3.0. Este documento no
 introduce APIs privadas ni cambia el comportamiento de producción.
 
-## Resumen ejecutivo
+La decisión anterior de MODE B no es final. Se evalúan tres estrategias
+independientes: el motor lógico existente, la activación pública mediante
+Mission Control y un backend nativo experimental basado en investigación de
+SkyLight/SLS. La administración directa de Spaces no se habilita por esta
+documentación.
 
-Las APIs públicas de macOS no ofrecen una interfaz estable para administrar los
-Spaces de Mission Control como objetos de una aplicación. AppKit expone la
-configuración `NSScreen.screensHaveSeparateSpaces`, información de pantallas y
-comportamientos de ventanas relacionados con Spaces. Accessibility expone la
-jerarquía de ventanas, foco, posición, tamaño y acciones soportadas por cada
-aplicación. Ninguna de esas APIs expone un identificador público y durable del
-Space actual, una lista pública de Spaces, ni operaciones públicas para crear,
-eliminar, seleccionar o asignar una ventana de otra aplicación a un Space
-concreto.
+## Regla de clean-room y licencia
 
-Por tanto, **la administración nativa completa no está expuesta como API
-pública, estable y verificable**. La decisión entre MODE B y un MODE C híbrido
-queda abierta hasta investigar la activación mediante atajos de Mission Control
-y validarla físicamente, especialmente con Spaces separados desactivados.
+yabai es GPL-3.0 y BlazaresSpaces es MIT. yabai se utiliza únicamente como
+referencia técnica para estudiar comportamiento, arquitectura, algoritmos,
+compatibilidad y nombres de interacción observados en versiones actuales.
 
-## Matriz de capacidades públicas
+No se copiará código fuente, se traducirán funciones línea por línea, se
+pegarán headers completos ni se incorporarán cuerpos de implementación de
+yabai. Cualquier futura implementación de BlazaresSpaces deberá ser una
+implementación independiente, mínima y compatible con MIT, con declaraciones
+propias únicamente para símbolos estrictamente necesarios. Los símbolos
+privados se tratarán como detalles de runtime no soportados por Apple.
 
-| Operación | Clasificación | Qué sí puede hacer la aplicación | Límite decisivo |
-| --- | --- | --- | --- |
-| Observar Spaces nativos | **PUBLIC + LIMITED** | Leer si las pantallas tienen Spaces separados; observar indirectamente ventanas y cambios de topología mediante AppKit/Accessibility | No hay API pública para enumerar Spaces, obtener su cantidad, conocer el Space actual o asociar un Space con un display y una ventana |
-| Crear Space nativo | **NOT PUBLICLY SUPPORTED** | El usuario puede crearlo desde Mission Control | No existe API pública AppKit/NSWorkspace/CoreGraphics para solicitar la creación |
-| Eliminar Space nativo | **NOT PUBLICLY SUPPORTED** | El usuario puede eliminarlo desde Mission Control | No existe API pública; el sistema reubica ventanas al borrar un Space |
-| Cambiar al Space nativo | **NOT PUBLICLY SUPPORTED** | El usuario puede usar Mission Control, gestos o atajos del sistema | No hay selector público de Space. Publicar eventos de teclado no es un controlador de Spaces documentado ni ofrece confirmación fiable |
-| Mover ventana a un Space nativo concreto | **NOT PUBLICLY SUPPORTED** | Accessibility puede mover/redimensionar una ventana si la aplicación lo permite; AppKit define comportamientos para ventanas propias | AX no define un atributo público de Space. `NSWindow`/`NSWorkspace` no permiten asignar ventanas de otras apps a un Space concreto |
-| Determinar el display | **PUBLIC + RELIABLE** | `NSScreen`, `CGDisplayBounds`, `NSScreenNumber` y geometría de ventana permiten determinar el display que contiene o interseca una ventana | La relación display/Space no está expuesta; la geometría no es una identidad de Space |
-| Sincronizar cambio de Space entre displays | **PUBLIC + LIMITED** | Con Spaces separados desactivados, macOS presenta un modelo global que el usuario puede cambiar; la app puede reaccionar a cambios observables | La app no puede seleccionar ni confirmar programáticamente el Space destino. Con Spaces separados activados no puede seleccionar el Space correspondiente de cada display |
+Referencias de investigación: [yabai CHANGELOG](https://github.com/asmvik/yabai/blob/master/CHANGELOG.md),
+[space_manager.c](https://github.com/asmvik/yabai/blob/master/src/space_manager.c),
+[yabai wiki](https://github.com/koekeishiya/yabai/wiki) y
+[LICENSE de yabai](https://github.com/asmvik/yabai/blob/master/LICENSE).
 
-## Evidencia de APIs públicas
+## Matriz de capacidades
 
-- Apple documenta `NSScreen.screensHaveSeparateSpaces` como una lectura de la
-  preferencia “Displays have separate Spaces”; indica si cada pantalla puede
-  tener su propio conjunto de Spaces, pero no expone esos Spaces como objetos
-  administrables.
-- La documentación de `AXUIElement` y de los atributos de Accessibility cubre
-  ventanas, foco, posición, tamaño, visibilidad, minimización y acciones. No
-  documenta un atributo `Space`, un ID de Space o una operación de cambio de
-  Space.
-- `NSWindow.CollectionBehavior` documenta comportamientos de ventanas propias,
-  como participar en Spaces (`managed`), aparecer en todos (`canJoinAllSpaces`)
-  o moverse al Space activo (`moveToActiveSpace`). Son políticas del ciclo de
-  vida de una ventana AppKit; no son una API para elegir un Space nativo de otra
-  aplicación.
-- `NSWorkspace` documenta lanzamiento y operaciones sobre archivos, dispositivos
-  y aplicaciones. No documenta administración de Mission Control o Spaces.
-- CoreGraphics documenta displays, bounds y eventos, pero no el inventario ni el
-  control de Spaces de Mission Control.
+Las etiquetas distinguen disponibilidad pública, dependencia privada, efecto
+de SIP, privilegios del Dock, compatibilidad observada en macOS 26 y soporte
+que BlazaresSpaces puede prometer.
 
-Fuentes oficiales:
+| Capacidad | Camino público | Camino privado estudiado | SIP | Dock / scripting addition | macOS 26 | Soporte de BlazaresSpaces |
+| --- | --- | --- | --- | --- | --- | --- |
+| Leer displays y geometría | `NSScreen`, CoreGraphics | No necesario | Completo | No | Público | Soportado |
+| Leer preferencia Separate Spaces | `NSScreen.screensHaveSeparateSpaces` | No necesario | Completo | No | Público | Soportado, limitado |
+| Leer topología de Spaces | No hay inventario público | `SLSCopyManagedDisplaySpaces` y relacionados, sujetos a verificación | Completo en investigación | No necesariamente | Debe verificarse por versión/arquitectura | Prototipo read-only pendiente |
+| Leer Space actual, IDs, UUIDs y tipos | No expuesto por AppKit/NSWorkspace | Funciones SLS observadas en herramientas de terceros | Completo en investigación | No necesariamente | Firmas y resultados deben verificarse en Tahoe 26.x | No prometido |
+| Enfocar Space existente | Atajos/Mission Control; `CGEvent` solo solicita acción del usuario | `space --focus` usa interacción SkyLight/SLS en yabai actual | yabai reporta soporte con SIP habilitado desde 7.1.19 | No necesariamente para ese camino | Reportado con fixes continuos | Solo experimental, no implementado |
+| Mover ventana a Space existente | AX puede mover la ventana físicamente, pero no asignarla a un Space | Operaciones SLS/bridged y/o scripting addition según versión | yabai reporta soporte con SIP habilitado de nuevo desde 7.1.25 | Puede ser necesario para rutas concretas | Requiere validación específica | Solo experimental, no implementado |
+| Crear Space | Mission Control por acción del usuario | Operaciones privadas / scripting addition | Requiere evaluar estado de SIP | Dock necesario según la operación | Fixes de yabai no equivalen a API estable | No soportado |
+| Eliminar Space | Mission Control por acción del usuario | Operaciones privadas / scripting addition | Requiere evaluar estado de SIP | Dock necesario según la operación | No promesa estable | No soportado |
+| Reordenar Space | Mission Control por acción del usuario | Operaciones privadas / scripting addition | Requiere evaluar estado de SIP | Dock necesario según la operación | No promesa estable | No soportado |
+| Mover Space entre displays | Mission Control por acción del usuario | Operaciones privadas / scripting addition | Requiere evaluar estado de SIP | Dock necesario según la operación | No promesa estable | No soportado |
+| Ventana → Space nativo | No existe asignación pública por índice/ID | Posible mediante APIs privadas investigadas | Depende de la ruta | Puede requerir Dock | Debe probarse por build | No implementado |
+| Confirmar Space destino | `activeSpaceDidChangeNotification` solo confirma una transición | Relectura SLS puede aportar identidad runtime | Completo | No | Notificación y SLS deben correlacionarse | No verificable públicamente |
+
+Conclusión de la matriz: leer, enfocar y mover ventanas son problemas distintos.
+Las capacidades de lectura no implican capacidad de mutación; enfocar un Space
+no implica mover una ventana; y mover una ventana no implica que la app pueda
+crear, eliminar, reordenar o trasladar Spaces entre displays.
+
+## Separación arquitectónica
+
+El dominio solo conoce `VirtualSpace`, su nombre, orden, membresías, sticky y
+estado de seguridad. No depende de SkyLight, SLS, Dock ni IDs runtime privados.
+
+La frontera de activación puede tener estas implementaciones:
+
+```text
+VirtualSpaceActivationStrategy
+├── LogicalWindowActivationStrategy       (MODE B, actual y determinista)
+├── MissionControlShortcutActivationStrategy (MODE C-public, experimental)
+└── NativeSpacesActivationStrategy        (MODE C-native, experimental)
+```
+
+El backend lógico conserva parking/restauración AX y sigue siendo el fallback.
+El backend público usa atajos configurados por el usuario y `CGEvent`; no es
+una API de Spaces. El backend nativo, si se implementa, solo puede vivir en
+Infrastructure mediante puertos/adaptadores propios.
+
+Los IDs privados, UUIDs y descriptores nativos son runtime-only hasta que se
+demuestre estabilidad. No se deben persistir como IDs durables ni mostrar en
+la UI. El binding preferido es posicional:
+
+```text
+Virtual Space 1 — Work        → primera desktop normal elegible
+Virtual Space 2 — Development → segunda desktop normal elegible
+Virtual Space 3 — Personal    → tercera desktop normal elegible
+```
+
+Los Spaces fullscreen, tiled/Split View o de tipo desconocido no se cuentan
+como posiciones ordinarias salvo evidencia reproducible de lo contrario.
+Con Separate Spaces ON el binding es por display; con OFF debe modelarse como
+un contexto global compartido, sin asumir que existe un ID público global.
+
+## Investigación del backend nativo
+
+La investigación de yabai 7.1.x indica que cambios recientes permiten enfocar
+Spaces con SIP habilitado desde 7.1.19 y mover ventanas con SIP habilitado de
+nuevo desde 7.1.25. Eso demuestra que SIP habilitado no descarta toda la
+capacidad observada en yabai; no demuestra que esas operaciones sean APIs
+públicas, estables o apropiadas para BlazaresSpaces.
+
+Los símbolos de interés incluyen `SLSCopyManagedDisplaySpaces`,
+`SLSManagedDisplayGetCurrentSpace`, `SLSSpaceGetType`,
+`SLSCopySpacesForWindows`, `SLSCopyWindowsWithOptionsAndTags` y
+`SLSCopyManagedDisplayForWindow`. Sus firmas, disponibilidad, tipos de Space y
+resultado deben verificarse en macOS 26.x para cada arquitectura antes de
+considerar cualquier prototipo. No se usarán APIs privadas durante esta fase
+documental, ni se inyectará código en Dock.
+
+El objetivo mínimo, si se aprueba una implementación posterior, es:
+
+1. read-only de displays, Spaces, tipos y Space actual;
+2. binding posicional sin persistir IDs privados;
+3. focus de un Space ya existente;
+4. movimiento de una ventana exacta a un Space ya existente;
+5. fallback lógico ante cualquier resultado ambiguo.
+
+Crear, destruir, reordenar o mover Spaces entre displays queda fuera del primer
+backend y se clasifica como capacidad estructural avanzada. No se crearán
+Spaces silenciosamente para completar Virtual Spaces faltantes.
+
+## Ruta pública mediante Mission Control
+
+La aplicación puede estudiar `CGEvent` para publicar Control-Left/Right o un
+atajo “Switch to Desktop N” configurado manualmente. `NSWorkspace` puede
+observar `activeSpaceDidChangeNotification` desde
+`NSWorkspace.shared.notificationCenter`, pero la notificación no contiene el
+índice, UUID, display ni destino. Solo confirma que se observó una transición.
+
+El usuario debe habilitar y configurar los atajos en System Settings. La app no
+debe leer o modificar preferencias globales no documentadas. El protocolo
+experimental debe registrar el observador antes de publicar el evento, usar
+timeout, marcar el resultado como `transitionObserved`, `unconfirmed` o
+`timedOut`, y conservar el fallback lógico. Nunca debe afirmar
+`destinationNVerified` ni mezclar parking y cambio nativo en una misma
+transacción sin diseño explícito.
+
+Separate Spaces OFF es el único candidato para probar un contexto global entre
+displays. Separate Spaces ON no garantiza que un atajo cambie coordinadamente
+la posición equivalente en todos los displays. “Automatically rearrange Spaces
+based on most recent use”, reordenamiento manual, fullscreen, Split View,
+reinicios y cambios de topología pueden invalidar el mapping; la app solo debe
+advertir, invalidar y degradar, nunca cambiar esa preferencia automáticamente.
+
+## Fases manuales de validación
+
+Estas fases son manuales y no deben automatizar mutaciones sobre el Mac de
+Edward. Los tests unitarios usarán fakes de proveedores/controladores nativos.
+
+### Fase 1 — Investigación y read-only
+
+- Registrar versión exacta de macOS 26, arquitectura, SIP y configuración de
+  Separate Spaces.
+- Comparar topología visible de Mission Control con cualquier lectura
+  read-only experimental; no modificar ventanas ni Spaces.
+- Identificar tipos normales, fullscreen y tiled; rechazar tipos ambiguos.
+- Confirmar que un cambio de display invalida el binding.
+
+### Fase 2 — Focus de Space existente
+
+- Preparar manualmente tres Spaces normales, sin crear ninguno desde la app.
+- Probar focus posicional con SIP habilitado y registrar éxito, latencia,
+  errores y notificaciones.
+- Repetir con Separate Spaces OFF y ON, un display y dos displays.
+- Tratar toda correlación sin identidad pública como experimental.
+
+### Fase 3 — Movimiento de una ventana exacta
+
+- Usar dos ventanas independientes de la misma aplicación.
+- Mover solo la ventana enfocada a un Space existente y verificar que la otra
+  no cambia.
+- Probar exclusiones NEVER MANAGE, ventana no enrolada e identidad obsoleta.
+- No usar `NSRunningApplication.hide()` ni ocultación app-wide.
+
+### Fase 4 — Robustez y capacidades estructurales
+
+- Probar fullscreen, Split View, Space eliminado/reordenado y uso reciente.
+- Probar hot-plug y configuraciones ON/OFF sin intentar corregirlas desde la
+  app.
+- Documentar por separado qué operaciones requieren Dock/scripting addition o
+  cambios de SIP; no habilitar create/delete/reorder/move-display.
+
+### Fase 5 — Decisión de producto
+
+Solo después de las fases anteriores se decide si ofrecer un backend nativo
+opt-in. Requisitos mínimos: read model correcto, focus y movimiento exactos,
+fallback sin doble movimiento, seguridad NEVER MANAGE, y degradación segura
+ante pérdida de identidad o cambio de topología. Si no se cumplen, MODE B
+permanece predeterminado y el camino público por atajos queda experimental.
+
+## Puerta de decisión A/B/C
+
+| Modo | Activación | Fuente de verdad | ON | OFF | Estado |
+| --- | --- | --- | --- | --- | --- |
+| MODE A | Administración nativa directa completa | APIs privadas/SkyLight | No soportable como promesa | No soportable como promesa | No seleccionado |
+| MODE B | Parking/restauración AX | BlazaresSpaces | Viable | Viable | Predeterminado seguro |
+| MODE C-public | Atajos Mission Control + `CGEvent` | Orden lógico + transición observable | No prometer sincronización | Candidato experimental | Pendiente de pruebas |
+| MODE C-native | SkyLight/SLS mínimo, aislado en Infrastructure | Topología runtime + binding posicional | Requiere pruebas por display | Requiere pruebas globales | Experimental, no implementado |
+
+No se selecciona todavía un backend nativo como predeterminado. SIP se mantiene
+completamente habilitado en la investigación. La integración privada, si algún
+día se implementa, debe requerir opt-in explícito, ser read-only inicialmente,
+no modificar Spaces estructuralmente y mantener el backend lógico como
+fallback.
+
+## Fuentes
 
 - [NSScreen.screensHaveSeparateSpaces](https://developer.apple.com/documentation/appkit/nsscreen/screenshaveseparatespaces)
+- [NSWorkspace.activeSpaceDidChangeNotification](https://developer.apple.com/documentation/appkit/nsworkspace/activespacedidchangenotification)
 - [AXUIElement](https://developer.apple.com/documentation/applicationservices/axuielement)
-- [AXUIElement.h](https://developer.apple.com/documentation/applicationservices/axuielement_h)
-- [Accessibility attributes](https://developer.apple.com/documentation/applicationservices/carbon_accessibility/attributes)
 - [NSWindow.CollectionBehavior](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct)
-- [NSWorkspace](https://developer.apple.com/documentation/appkit/nsworkspace)
-- [Apple Support: Work in multiple spaces on Mac](https://support.apple.com/guide/mac-help/work-in-multiple-spaces-mh14112/mac)
-
-## “Displays have separate Spaces” — ON
-
-Cada display puede tener su propio conjunto de Spaces. La documentación de
-Apple describe precisamente que Mission Control muestra los Spaces y ventanas
-del display desde el que se abre, y ofrece asignaciones como “Desktop on Display
-[number]”.
-
-BlazaresSpaces puede:
-
-- leer que esta configuración está activa;
-- descubrir ventanas accesibles y su geometría/display;
-- aplicar su propia semántica de Virtual Space mediante el motor lógico;
-- dejar intactas las ventanas no gestionadas.
-
-BlazaresSpaces no puede, usando APIs públicas documentadas:
-
-- garantizar que el Space 2 del display A sea el mismo contexto que el Space 2
-  del display B;
-- seleccionar el Space nativo correspondiente en cada display;
-- verificar de forma estable que una ventana está en el Space nativo esperado;
-- crear los Spaces que falten para completar una fila 1..N.
-
-Conclusión para ON: no se debe simular un binding nativo ni afirmar que un
-Virtual Space cambia los Spaces de Mission Control. El motor lógico puede
-aparcar/restaurar ventanas explícitamente gestionadas, sujeto a las limitaciones
-de Accessibility y de las aplicaciones individuales.
-
-## “Displays have separate Spaces” — OFF
-
-Cuando la opción está desactivada, macOS usa un modelo de Spaces compartido por
-el conjunto de displays. El usuario puede cambiar entre Spaces con Mission
-Control o con los atajos/gestos del sistema, y ese cambio representa un contexto
-global del conjunto de pantallas.
-
-Esto hace que el comportamiento nativo sea conceptualmente más cercano a un
-Virtual Space global, pero no convierte la operación en una API pública:
-
-- la aplicación puede leer que la opción está desactivada;
-- el cambio nativo sigue siendo iniciado por el usuario o por la UI del sistema;
-- no hay una API pública para decir “activa el Space n” ni para confirmar su
-  identidad posicional;
-- no se puede afirmar que el número u orden visible de Mission Control sea una
-  lista que BlazaresSpaces pueda leer y persistir.
-
-Conclusión para OFF: BlazaresSpaces puede documentar que el usuario tiene un
-modelo nativo global disponible y reaccionar conservadoramente a cambios
-observables, pero no debe reimplementarlo con eventos sintetizados ni mezclarlo
-automáticamente con el motor lógico. Si BlazaresSpaces activa su Virtual Space,
-el mecanismo soportado sigue siendo el lógico.
-
-## Orden y mapeo
-
-El orden visible de Virtual Spaces debe ser posicional y estable para el usuario:
-
-```text
-Virtual Space 1 — Work
-Virtual Space 2 — Development
-Virtual Space 3 — University
-Virtual Space 4 — Personal
-```
-
-Ese orden **no constituye** un binding a “native Space 1..4”. macOS no garantiza
-una API pública para leer esos índices, y el orden/identidad puede cambiar por
-Mission Control, pantallas, pantalla completa, Split View, reinicios o cambios
-de topología. No se deben persistir IDs internos observados mediante técnicas
-privadas ni inferirlos desde coordenadas.
-
-El modelo recomendado es:
-
-```text
-VirtualSpace
-  id interno durable
-  name
-  order/index visible
-  memberships
-  sticky semantics
-
-VirtualSpaceActivationStrategy
-  LogicalWindowParkingActivationStrategy  ← implementación 0.3.0
-  NativeMacOSSpaceActivationStrategy      ← no disponible públicamente
-```
-
-No existe un `VirtualSpaceBinding` nativo persistible en 0.3.0. Un descriptor
-de display puede seguir siendo útil para geometría y matching, pero no debe
-describirse como identidad de un Space.
-
-## Decisión arquitectónica
-
-**Seleccionado: MODE B — Logical Virtual Spaces.**
-
-Razones:
-
-1. La creación, eliminación, selección y asignación nativas no tienen APIs
-   públicas soportadas.
-2. La observación nativa completa tampoco es fiable: leer la preferencia de
-   Spaces separados y observar ventanas no equivale a conocer el Space actual.
-3. MODE A exigiría afirmar una sincronización que el sistema no ofrece.
-4. MODE C no aporta un subconjunto nativo suficientemente sólido para usarlo
-   como fuente de verdad; la única capacidad general disponible es la lectura de
-   la preferencia `screensHaveSeparateSpaces`.
-5. El motor actual ya satisface la semántica de contextos globales con
-   autorización explícita, exclusiones, sticky, parking, restauración y recovery.
-
-La terminología pública debe ser:
-
-- `Virtual Space` para los contextos administrados por BlazaresSpaces;
-- `macOS Space` o `Native Space` para los escritorios de Mission Control;
-- nunca presentar un Virtual Space como si fuera un macOS Space.
-
-## Implicaciones para producción y migración
-
-Esta investigación no requiere cambios de producción ni migración de datos. La
-configuración existente puede conservar sus IDs internos y memberships; el
-cambio de producto es terminológico y de activación conceptual. Si se adopta
-“Virtual Space” en UI, debe migrarse únicamente el texto/presentación, no
-reinterpretar IDs nativos inexistentes.
-
-La integración de focused-window sigue siendo compatible: Accessibility puede
-identificar la ventana enfocada y las acciones explícitas pueden gestionarla
-mediante el motor lógico. Eso no prueba ni promete su pertenencia a un macOS
-Space concreto.
-
-## Qué se debe probar físicamente en Mac
-
-- ON: confirmar que Mission Control mantiene contextos por display y que un
-  cambio nativo no es confundido con un cambio de Virtual Space.
-- OFF: confirmar que el cambio nativo afecta al conjunto global de displays.
-- En ambos modos: verificar que BlazaresSpaces solo mueve ventanas explícitamente
-  gestionadas, que exclusiones y ventanas no gestionadas permanecen intactas, y
-  que una pérdida de Accessibility/topología pausa la activación.
-- Probar pantalla completa, Split View, hot-plug y ventanas que rechazan AX.
-
-## Ruta adicional: activación por atajos públicos de Mission Control
-
-Esta fase investiga exclusivamente la integración con el mecanismo de usuario:
-atajos de Mission Control, `CGEvent` para publicar teclado y
-`NSWorkspace.activeSpaceDidChangeNotification` para observar una transición.
-No es una API de administración de Spaces ni expone una identidad nativa.
-
-La hipótesis de MODE C es `Virtual Space N → Switch to Desktop N`. BlazaresSpaces
-conservaría nombres, orden, membresías, exclusiones y fallback lógico; macOS
-ejecutaría el cambio físico mediante el atajo configurado por el usuario.
-`CGEventCreateKeyboardEvent` y `CGEvent.post` son APIs públicas, pero Apple no
-garantiza que un evento sintetizado active Mission Control en todos los estados
-de foco, layouts, conflictos o versiones.
-
-`NSWorkspace.activeSpaceDidChangeNotification` es pública y debe observarse en
-`NSWorkspace.shared.notificationCenter`; no tiene `userInfo` ni contiene el
-índice, nombre, display o ID destino. Confirma una transición observable, no
-que se alcanzó Desktop N.
-
-### Precondiciones y protocolo seguro
-
-Los atajos “Switch to Desktop N” deben ser habilitados y configurados por el
-usuario en System Settings. No hay API pública fiable para leer, verificar o
-cambiar esas asignaciones; la app no debe modificar preferencias globales
-silenciosamente. Control-Left/Control-Right es navegación relativa y no
-sustituye automáticamente al atajo absoluto Desktop N.
-
-Un adaptador experimental debe comprobar Accessibility y
-`NSScreen.screensHaveSeparateSpaces`, registrar el observador antes de publicar
-el evento, enviar el atajo mediante `CGEvent`, y esperar con timeout corto.
-El resultado solo puede ser `transitionObserved`, `unconfirmed` o `timedOut`,
-nunca `destinationNVerified`. Topología insegura, solicitudes concurrentes o
-timeout deben cancelar/degradar y conservar el motor lógico como fallback; no
-deben provocar parking parcial ni cambios de membresía.
-
-### Riesgos del mapeo posicional
-
-“Automatically rearrange Spaces based on most recent use” puede cambiar el
-orden y romper `Virtual Space N = Desktop N`; para probar mapping estable el
-usuario debe desactivarlo manualmente. La app no debe cambiarlo. Crear,
-eliminar o reordenar Spaces, reiniciar sesión, fullscreen, Split View y displays
-adicionales pueden introducir o desplazar Spaces. Fullscreen debe tratarse
-como una fuente de desincronización.
-
-Con **Spaces separados OFF**, el contexto global compartido es el mejor
-candidato para MODE C, pero requiere pruebas reales con varios displays. Con
-**ON**, un atajo no garantiza sincronización del mismo índice en cada display y
-MODE C no debe presentarse como soporte multi-display.
-
-### Matriz de integración y puerta A/B/C
-
-| Capacidad | Mecanismo público | Verificación | Estado |
-| --- | --- | --- | --- |
-| Activar Desktop N | Atajo configurado + `CGEvent` | Notificación, sin índice | Pendiente de prueba |
-| Observar transición | `activeSpaceDidChangeNotification` | Cambio ocurrido | Disponible, limitada |
-| Leer/configurar atajos | System Settings | No hay API fiable | Acción manual |
-| Activar con OFF | Atajo + notificación | Posible contexto global | Candidato experimental |
-| Activar con ON | Atajo + notificación | Destino por display ambiguo | No apto para promesa |
-| Crear/eliminar/mover a Space N | Mission Control/AX | No verificable | No soportado |
-
-| Modo | Activación | ON | OFF | Estado |
-| --- | --- | --- | --- | --- |
-| MODE A | Administración nativa directa | No viable | No viable | Descartado |
-| MODE B | Parking/restauración AX | Viable | Viable | Fallback determinista |
-| MODE C | Atajos `CGEvent` + fallback lógico | No prometer | Candidato a validar | No decidido |
-
-No se selecciona todavía MODE B o MODE C como estrategia predeterminada.
-La decisión queda pendiente de pruebas físicas con atajos configurados y
-ausentes, reordenamiento, fullscreen, conflictos, timeout, y Spaces OFF/ON.
-
-### Plan de validación física
-
-Con uno y dos displays, crear tres Spaces, desactivar Spaces separados y el
-reordenamiento automático, configurar Desktop 1..3, y probar cada Virtual
-Space desde la app. Confirmar visualmente la ventana esperada y registrar la
-notificación. Repetir con atajo ausente/en conflicto, solicitudes rápidas,
-cambio manual concurrente, Space eliminado, fullscreen, topología cambiada y
-Spaces separados activados. Aprobar MODE C solo si OFF conserva una
-correspondencia estable y todos los fallos producen estado incierto/degradado
-con fallback seguro.
-
-Fuentes oficiales: [CGEvent keyboard initializer](https://developer.apple.com/documentation/coregraphics/cgevent/init%28keyboardeventsource%3Avirtualkey%3Akeydown%3A%29),
-[CGEvent.post](https://developer.apple.com/documentation/coregraphics/cgevent/post%28tap%3A%29),
-[activeSpaceDidChangeNotification](https://developer.apple.com/documentation/appkit/nsworkspace/activespacedidchangenotification),
-[Work in multiple spaces](https://support.apple.com/guide/mac-help/work-in-multiple-spaces-mh14112/mac) y
-[Desktop & Dock settings](https://support.apple.com/guide/mac-help/-mchlp1119/mac/26).
-
-## Respuesta final
-
-La administración nativa directa de macOS Spaces no está disponible mediante
-API pública. MODE C queda abierto como integración experimental basada en
-atajos públicos, especialmente con Spaces separados OFF; no proporciona IDs,
-no verifica semánticamente Desktop N y debe mantener MODE B como fallback.
+- [CGEvent keyboard initializer](https://developer.apple.com/documentation/coregraphics/cgevent/init%28keyboardeventsource%3Avirtualkey%3Akeydown%3A%29)
+- [CGEvent.post](https://developer.apple.com/documentation/coregraphics/cgevent/post%28tap%3A%29)
+- [Apple Support: Work in multiple spaces](https://support.apple.com/guide/mac-help/work-in-multiple-spaces-mh14112/mac)
+- [Apple Support: Desktop & Dock settings](https://support.apple.com/guide/mac-help/-mchlp1119/mac/26)
+- [yabai CHANGELOG](https://github.com/asmvik/yabai/blob/master/CHANGELOG.md)
+- [yabai space_manager.c](https://github.com/asmvik/yabai/blob/master/src/space_manager.c)
+- [yabai wiki](https://github.com/koekeishiya/yabai/wiki)
+- [yabai GPL-3.0 license](https://github.com/asmvik/yabai/blob/master/LICENSE)
