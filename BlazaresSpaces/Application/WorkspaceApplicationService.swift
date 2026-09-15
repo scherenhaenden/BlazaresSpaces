@@ -61,7 +61,6 @@ final class WorkspaceApplicationService: ObservableObject {
         self.init(
             windowDiscovery: AXWindowDiscovery(),
             focusedWindowProvider: AXFocusedWindowProvider(),
-            activationStrategyProvider: LogicalVirtualSpaceActivationAdapter(),
             windowController: AXExternalWindowController(),
             displayProvider: DisplayManager(),
             permissionManager: AccessibilityPermissionManager(),
@@ -69,7 +68,8 @@ final class WorkspaceApplicationService: ObservableObject {
             shortcutManager: GlobalShortcutManager(),
             managementPolicy: WindowManagementPolicyStore().load(),
             workspaceEngine: WorkspaceSwitchEngine(),
-            restorationCoordinator: SessionRestorationCoordinator()
+            restorationCoordinator: SessionRestorationCoordinator(),
+            activationStrategyProvider: LogicalVirtualSpaceActivationAdapter()
         )
     }
 
