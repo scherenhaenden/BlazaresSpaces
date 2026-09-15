@@ -1,6 +1,6 @@
 import Foundation
 
-struct PersistedStateEnvelope: Codable, Equatable, Sendable {
+nonisolated struct PersistedStateEnvelope: Codable, Equatable, Sendable {
     static let currentSchemaVersion = 1
 
     let schemaVersion: Int
@@ -14,7 +14,7 @@ struct PersistedStateEnvelope: Codable, Equatable, Sendable {
 
 /// Version-one storage DTO. It is deliberately separate from runtime models so
 /// process IDs, AX identifiers, and temporary parking state cannot leak to disk.
-struct PersistedStateV1: Codable, Equatable, Sendable {
+nonisolated struct PersistedStateV1: Codable, Equatable, Sendable {
     struct Workspace: Codable, Equatable, Sendable {
         let id: String
         let name: String
@@ -80,4 +80,3 @@ struct PersistedStateV1: Codable, Equatable, Sendable {
     let preferences: Preferences
     let managedWindows: [ManagedWindow]
 }
-

@@ -3,7 +3,7 @@ import Foundation
 
 /// Durable identity of a user-managed logical window record.
 /// It is intentionally unrelated to a process or Accessibility session.
-struct ManagedWindowID: RawRepresentable, Codable, Hashable, Identifiable, Sendable {
+nonisolated struct ManagedWindowID: RawRepresentable, Codable, Hashable, Identifiable, Sendable {
     let rawValue: UUID
 
     init(rawValue: UUID) {
@@ -19,7 +19,7 @@ struct ManagedWindowID: RawRepresentable, Codable, Hashable, Identifiable, Senda
 
 /// A serialization-friendly frame value. Its meaning is made explicit by the
 /// property that contains it (absolute or display-normalized geometry).
-struct WindowGeometryRect: Codable, Equatable, Sendable {
+nonisolated struct WindowGeometryRect: Codable, Equatable, Sendable {
     let x: Double
     let y: Double
     let width: Double
@@ -48,7 +48,7 @@ struct WindowGeometryRect: Codable, Equatable, Sendable {
 
 /// Non-runtime display characteristics used to understand captured geometry.
 /// No `CGDirectDisplayID` is stored because it is not a durable identity.
-struct PersistedDisplayDescriptor: Codable, Equatable, Sendable {
+nonisolated struct PersistedDisplayDescriptor: Codable, Equatable, Sendable {
     let name: String?
     let frameSize: WindowGeometryRect
     let visibleFrameSize: WindowGeometryRect
@@ -72,7 +72,7 @@ struct PersistedDisplayDescriptor: Codable, Equatable, Sendable {
 
 /// Desired geometry, kept separate from both current runtime geometry and any
 /// temporary off-screen parking frame.
-struct LogicalWindowGeometry: Codable, Equatable, Sendable {
+nonisolated struct LogicalWindowGeometry: Codable, Equatable, Sendable {
     let absolute: WindowGeometryRect
     let normalized: WindowGeometryRect?
     let display: PersistedDisplayDescriptor?
@@ -91,7 +91,7 @@ struct LogicalWindowGeometry: Codable, Equatable, Sendable {
 /// Privacy-safe signals that may survive an application restart. In
 /// particular, this type cannot contain titles, PID, AX identifiers, display
 /// runtime IDs, or parking state.
-struct PersistedWindowDescriptor: Codable, Equatable, Sendable {
+nonisolated struct PersistedWindowDescriptor: Codable, Equatable, Sendable {
     let bundleIdentifier: String?
     let applicationName: String
     let role: String

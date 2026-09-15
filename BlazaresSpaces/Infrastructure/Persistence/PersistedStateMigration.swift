@@ -1,13 +1,13 @@
 import Foundation
 
-enum PersistedStateDecodeResult: Equatable, Sendable {
+nonisolated enum PersistedStateDecodeResult: Equatable, Sendable {
     case loaded(PersistedStateV1)
     case unsupported(schemaVersion: Int)
     case corrupted(description: String)
 }
 
-struct PersistedStateMigrator: Sendable {
-    private struct Header: Decodable {
+nonisolated struct PersistedStateMigrator: Sendable {
+    private nonisolated struct Header: Decodable {
         let schemaVersion: Int
     }
 
@@ -42,11 +42,11 @@ struct PersistedStateMigrator: Sendable {
     }
 }
 
-struct PersistedStateValidationIssue: Equatable, Sendable {
+nonisolated struct PersistedStateValidationIssue: Equatable, Sendable {
     let message: String
 }
 
-struct PersistedStateValidator: Sendable {
+nonisolated struct PersistedStateValidator: Sendable {
     init() {}
 
     func validate(_ state: PersistedStateV1) -> [PersistedStateValidationIssue] {
@@ -103,4 +103,3 @@ struct PersistedStateValidator: Sendable {
         return !normalized || rect.width <= 4 && rect.height <= 4
     }
 }
-
