@@ -51,6 +51,7 @@ final class WorkspaceApplicationService: ObservableObject {
     let activationStrategyProvider: any VirtualSpaceActivationStrategyProviding
     let nativeSpacesProvider: any NativeSpacesProviding
     let nativeSpacesController: any NativeSpacesControlling
+    let nativeSpaceLogStore: NativeSpaceLogStore
     let windowController: any WindowControlling
     let displayProvider: any DisplayTopologyProviding
     let permissionManager: any AccessibilityChecking
@@ -81,7 +82,8 @@ final class WorkspaceApplicationService: ObservableObject {
             restorationCoordinator: SessionRestorationCoordinator(),
             activationStrategyProvider: LogicalVirtualSpaceActivationAdapter(),
             nativeSpacesProvider: SkyLightNativeSpacesProvider(),
-            nativeSpacesController: NativeSpacesController()
+            nativeSpacesController: NativeSpacesController(),
+            nativeSpaceLogStore: NativeSpaceLogStore()
         )
     }
 
@@ -98,13 +100,15 @@ final class WorkspaceApplicationService: ObservableObject {
         restorationCoordinator: SessionRestorationCoordinator,
         activationStrategyProvider: any VirtualSpaceActivationStrategyProviding = LogicalVirtualSpaceActivationAdapter(),
         nativeSpacesProvider: any NativeSpacesProviding = SkyLightNativeSpacesProvider(),
-        nativeSpacesController: any NativeSpacesControlling = NativeSpacesController()
+        nativeSpacesController: any NativeSpacesControlling = NativeSpacesController(),
+        nativeSpaceLogStore: NativeSpaceLogStore = NativeSpaceLogStore()
     ) {
         self.windowDiscovery = windowDiscovery
         self.focusedWindowProvider = focusedWindowProvider
         self.activationStrategyProvider = activationStrategyProvider
         self.nativeSpacesProvider = nativeSpacesProvider
         self.nativeSpacesController = nativeSpacesController
+        self.nativeSpaceLogStore = nativeSpaceLogStore
         self.windowController = windowController
         self.displayProvider = displayProvider
         self.permissionManager = permissionManager
@@ -208,7 +212,9 @@ final class WorkspaceApplicationService: ObservableObject {
 
     private func appendNativeSpaceLog(_ message: String) {
         let timestamp = Date().formatted(.dateTime.hour().minute().second())
-        nativeSpaceOperationLog = Array((nativeSpaceOperationLog + ["\(timestamp) · \(message)"]).suffix(100))
+        let line = "\(timestamp) · \(message)"
+        nativeSpaceOperationLog = Array((nativeSpaceOperationLog + [line]).suffix(100))
+        nativeSpaceLogStore.append(line)
     }
 
     // MARK: - Focused Window Quick Actions

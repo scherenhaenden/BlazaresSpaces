@@ -466,6 +466,9 @@ struct DailyDriverDashboardView: View {
                 if !model.nativeSpaceOperationLog.isEmpty {
                     Text("Native Spaces operation log")
                         .font(.headline)
+                    Text("Saved to ~/Library/Application Support/BlazaresSpaces/native-spaces.log")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     ScrollView {
                         VStack(alignment: .leading, spacing: 3) {
                             ForEach(Array(model.nativeSpaceOperationLog.enumerated()), id: \.offset) { _, entry in

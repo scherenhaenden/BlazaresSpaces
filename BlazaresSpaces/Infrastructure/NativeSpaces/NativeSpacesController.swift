@@ -8,7 +8,7 @@ struct NativeSpacesController: NativeSpacesControlling {
     private let provider: any NativeSpacesProviding
     private let timeout: TimeInterval
 
-    nonisolated init(provider: any NativeSpacesProviding = SkyLightNativeSpacesProvider(), timeout: TimeInterval = 1.5) {
+    nonisolated init(provider: any NativeSpacesProviding = SkyLightNativeSpacesProvider(), timeout: TimeInterval = 4.0) {
         self.provider = provider
         self.timeout = timeout
     }
@@ -34,7 +34,10 @@ struct NativeSpacesController: NativeSpacesControlling {
         let semaphore = DispatchSemaphore(value: 0)
         let token = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
-            object: NSWorkspace.shared,
+            // The workspace notification center does not consistently attach
+            // the NSWorkspace instance as the notification object across macOS
+            // releases. Filtering by object can therefore miss a real switch.
+            object: nil,
             // Never enqueue this observer on MainActor: activate() waits for
             // the signal synchronously and would otherwise deadlock the UI.
             queue: nil
@@ -43,18 +46,32 @@ struct NativeSpacesController: NativeSpacesControlling {
         guard postControlArrow(delta > 0 ? 124 : 123, count: abs(delta)) else {
             return .failed("Could not post Mission Control shortcut; check Accessibility permission")
         }
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            return .failed("Native Space transition was not observed before timeout")
-        }
-        guard let refreshed = provider.readTopology().value else {
-            return .failed("Transition occurred but the target native Space was not verified")
-        }
         let targetRuntimeID = target.spacesByDisplay[current.displayIdentifier]?.runtimeID
-        guard let targetRuntimeID,
-              refreshed.spaces.contains(where: { $0.runtimeID == targetRuntimeID && $0.isCurrent }) else {
-            return .failed("Transition occurred but the target native Space was not verified on display \(current.displayIdentifier)")
+        guard let targetRuntimeID else {
+            return .unavailable("Target native desktop has no binding on active display \(current.displayIdentifier)")
         }
-        return .activated
+
+        // Notification delivery is the fast path, but polling the public
+        // topology snapshot is the reliable confirmation path. Some macOS
+        // versions deliver the notification late or without the expected
+        // object while Mission Control is animating.
+        let deadline = Date().addingTimeInterval(timeout)
+        var notificationObserved = false
+        while Date() < deadline {
+            if semaphore.wait(timeout: .now() + 0.1) == .success {
+                notificationObserved = true
+            }
+            if let refreshed = provider.readTopology().value,
+               refreshed.spaces.contains(where: { $0.runtimeID == targetRuntimeID && $0.isCurrent }) {
+                return .activated
+            }
+            if notificationObserved {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+        }
+        return .failed(notificationObserved
+            ? "Native Space changed notification arrived, but target Desktop \(virtualPosition) was not verified"
+            : "Native Space transition was not observed before timeout (waited \(timeout)s)")
     }
 
     private nonisolated func activeDisplayIdentifier(in topology: NativeSpaceTopology) -> String? {
