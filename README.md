@@ -78,26 +78,31 @@ The long-term goal is to stay as close as practical to public macOS APIs.
 
 ## Current status
 
-### `0.0.1` — Window & Display Inspector
+### `0.0.2` — Safe Capture / Restore
 
-The project is currently validating the low-level foundation needed before any real workspace switching is attempted.
+The project has moved beyond the read-only inspector foundation and now includes explicit, safety-scoped capture and restoration experiments for external windows.
 
 Implemented so far:
 
 - Accessibility authorization detection and permission request;
 - connected-display discovery;
-- global display frames and visible frames;
-- scale/backing information;
+- global display frames, visible frames, and scale/backing information;
 - Accessibility-based application-window discovery;
-- application metadata and runtime window information;
-- window geometry and state inspection;
-- window-to-display mapping using display overlap;
+- application metadata, runtime window identity, geometry, and state inspection;
+- window-to-display mapping using largest display overlap;
 - diagnostics that tolerate inaccessible or disappearing windows;
-- unit-tested display/window mapping logic.
+- a BlazaresSpaces-owned **Window Control Lab** for safe move/resize/restore experiments;
+- explicit authorization of external test windows;
+- conservative `NEVER MANAGE` exclusions;
+- single-window capture and explicit restore;
+- selected multi-window capture and restore with per-window failure isolation;
+- requested-versus-actual frame verification;
+- read-only in-memory global desktop snapshots;
+- hidden window titles by default to reduce exposure of sensitive information.
 
-**0.0.1 is intentionally read-only.**
+Discovery remains read-only by default. Finding a window does **not** grant permission to mutate it. External restore requires explicit user selection, a usable AX runtime identity, and a re-check of the exact runtime window before mutation.
 
-It does **not** move, resize, minimize, hide, close, restore, focus, or otherwise mutate existing application windows. This is deliberate: the project first needs to prove that it understands the desktop correctly before it is allowed to change it.
+`0.0.2` is code-complete but still requires physical validation on real multi-monitor macOS hardware before it should be treated as fully verified.
 
 ---
 
@@ -105,7 +110,7 @@ It does **not** move, resize, minimize, hide, close, restore, focus, or otherwis
 
 BlazaresSpaces uses milestone-oriented pre-1.0 versions. Each version is intended to represent a concrete increase in capability rather than an arbitrary build number.
 
-The current development target is **`0.0.1`**. Until a milestone has been implemented and manually verified on real macOS hardware, it should be treated as development work rather than a completed release.
+The current development milestone is **`0.0.2`**. Until a milestone has been implemented and manually verified on real macOS hardware, it should be treated as development work rather than a completed stable release.
 
 The version progression is intentionally conservative:
 
@@ -138,7 +143,7 @@ RESTORE
 ONLY THEN MANAGE REAL WORKSPACES
 ```
 
-Window mutation experiments will first target a dedicated BlazaresSpaces-owned test window. External application windows are not to be modified automatically during the inspector phase.
+The inspector and Refresh remain read-only. External mutation is opt-in per window and happens only after explicit selection. Conservative exclusions remain visible as `NEVER MANAGE`, and there is no fallback to a merely similar window if the selected runtime identity disappears.
 
 ---
 
@@ -152,24 +157,24 @@ The current direction is:
 Swift / SwiftUI / AppKit
         │
         ├── Accessibility
-        │     AXUIElement inspection and later controlled mutation
+        │     AXUIElement inspection and controlled mutation
         │
         ├── Displays
         │     CoreGraphics + NSScreen topology
         │
         ├── Windows
-        │     identity, geometry, snapshots, restoration
+        │     identity, authorization, geometry, snapshots, restoration
         │
         ├── Workspaces
         │     global multi-display logical contexts
         │
         └── UI / Diagnostics
-              inspection, testing and configuration
+              inspection, safe testing and configuration
 ```
 
 The domain model is deliberately kept separate from macOS-specific Accessibility objects so that workspace logic can be tested without physically moving real windows.
 
-See [`docs/architecture.md`](docs/architecture.md) for architecture notes and [`docs/vision.md`](docs/vision.md) for the product vision.
+See [`docs/architecture.md`](docs/architecture.md) for architecture notes, [`docs/vision.md`](docs/vision.md) for the product vision, and [`docs/window-deactivation.md`](docs/window-deactivation.md) for the current analysis of future inactive-workspace window strategies.
 
 ---
 
@@ -187,7 +192,7 @@ BlazaresSpaces instead explores **application-managed logical workspaces** using
 
 This keeps the project independent from private Mission Control internals and avoids requiring SIP changes.
 
-The exact strategy for hiding/deactivating inactive workspace windows is still experimental and will only be chosen after controlled testing.
+The exact strategy for deactivating windows that belong to an inactive logical workspace remains experimental and will only be chosen after controlled testing.
 
 ---
 
@@ -197,7 +202,7 @@ The exact strategy for hiding/deactivating inactive workspace windows is still e
 |---|---|
 | `0.0.1` | Window & display inspector |
 | `0.0.2` | Safe capture / restore of layouts |
-| `0.0.3` | Two global logical workspaces |
+| `0.0.3` | Global logical workspaces |
 | `0.1.0` | Usable workspace-switching MVP |
 | `0.2.0` | Persistence and robust display-topology handling |
 | `0.3.0` | Application/window rules and exclusions |
@@ -232,7 +237,32 @@ Accessibility authorization is tied to the built application's identity/location
 
 Some applications expose incomplete Accessibility information, protected windows, unusual child windows, or no manageable windows at all. Those cases are part of what the current inspector exists to discover.
 
-Window titles may contain sensitive information. They are therefore not intended to be persisted or logged verbosely by default.
+Window titles may contain sensitive information. They are hidden by default and are not intended to be persisted or logged verbosely.
+
+---
+
+## Safe `0.0.2` verification
+
+After granting Accessibility access, click **Window Control Lab**. Use **Capture Frame**, move or resize the lab manually, then use **Restore Captured Frame**. The explicit **Move Test Window** and **Resize Test Window** actions are limited to this BlazaresSpaces-owned test window.
+
+Click **Capture Desktop Snapshot** in the inspector to record the current external desktop state in memory. This operation only reads AX attributes and reports the number of windows and represented displays.
+
+For an external restore experiment, explicitly select a safe disposable window with **Use as Capture/Restore Test Window**, click **Capture Selected Window**, manually move or resize that window, then click **Restore Selected Window**. The UI reports exact, adjusted, missing, excluded, unsupported, permission-denied, and failed outcomes. There is no automatic external move action.
+
+A temporary set of explicitly selected safe windows can also be captured and restored together. Restoration proceeds per window so one failure does not prevent unrelated selected windows from being processed.
+
+### Manual verification checklist
+
+- **A — Accessibility:** Confirm Granted/Not Granted and that Refresh never changes other windows.
+- **B — Displays:** Confirm all physical displays, IDs, frames, visible frames, scale, and negative coordinates.
+- **C — Inspector:** Confirm expected applications and geometry without any visible changes.
+- **D — Control Lab:** Capture, move, resize, and restore only the BlazaresSpaces lab window.
+- **E — Single external restore:** Explicitly select one safe disposable external window, capture it, move/resize it manually, restore it, and verify requested vs actual frame.
+- **F — Multi-display external restore:** Capture a selected test window on one display, manually move it to another, restore it, and verify it returns correctly.
+- **G — Exclusions:** Confirm `NEVER MANAGE` applications cannot be selected for mutation.
+- **H — Selected-set restore:** Capture several explicitly selected safe windows, rearrange them manually, restore the set, and inspect individual outcomes.
+- **I — Partial failure:** Close one selected window before restore and confirm the remaining selected windows are still processed.
+- **J — Full snapshot:** Capture the global read-only desktop snapshot and confirm no unselected external window changes.
 
 ---
 

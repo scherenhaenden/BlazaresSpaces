@@ -9,6 +9,8 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = DiagnosticsViewModel()
+    @Environment(\.openWindow) private var openWindow
+    @State private var showWindowTitles = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -16,8 +18,12 @@ struct ContentView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
+                    if model.externalTestModeEnabled { externalTestModeSection }
                     displaysSection
                     windowsSection
+                    if let snapshot = model.desktopSnapshot { snapshotSection(snapshot) }
+                    if let snapshot = model.capturedTestSet { selectedSetSnapshotSection(snapshot) }
+                    if let report = model.restoreReport { restoreReportSection(report) }
                     if !model.issues.isEmpty { issuesSection }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -49,6 +55,8 @@ struct ContentView: View {
                 Button("Request Access") { model.requestAccessibilityAccess() }
                 Button("Open Settings") { model.openAccessibilitySettings() }
             }
+            Button("Window Control Lab") { openWindow(id: "window-control-lab") }
+            Button("Capture Desktop Snapshot") { model.captureAllWindows() }
             Button("Refresh") { model.refresh() }
                 .keyboardShortcut("r", modifiers: .command)
         }
@@ -75,6 +83,47 @@ struct ContentView: View {
         .accessibilityIdentifier("displaysSection")
     }
 
+    private var externalTestModeSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("EXTERNAL WINDOW TEST MODE", systemImage: "exclamationmark.shield.fill")
+                    .font(.headline)
+                    .foregroundStyle(.orange)
+                Text("BlazaresSpaces may modify only the external window explicitly selected below. Discovery and Refresh remain read-only.")
+                    .foregroundStyle(.secondary)
+
+                if let selectedID = model.selectedTestWindowID {
+                    if let selected = model.windows.first(where: { $0.runtimeIdentity == selectedID }) {
+                        Text("Selected external test window: \(selected.applicationName) · PID \(selected.runtimeIdentity.processIdentifier) · \(selected.bundleIdentifier ?? "Bundle unavailable")")
+                            .fontDesign(.monospaced)
+                    } else {
+                        Text("Selected external test window: PID \(selectedID.processIdentifier) · no longer discovered")
+                            .fontDesign(.monospaced)
+                    }
+                    HStack {
+                        Button("Capture Selected Window") { model.captureSelectedWindow() }
+                        Button("Restore Selected Window") { model.restoreSelectedWindow() }
+                    }
+                }
+
+                if !model.selectedTestSetIDs.isEmpty {
+                    Text("Selected test set: \(model.selectedTestSetIDs.count) window(s)")
+                    HStack {
+                        Button("Capture Selected Test Set") { model.captureSelectedTestSet() }
+                        Button("Restore Selected Test Set") { model.restoreSelectedTestSet() }
+                    }
+                }
+
+                if let status = model.actionStatus {
+                    Text(status).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+        }
+        .tint(.orange)
+    }
+
     private var windowsSection: some View {
         GroupBox("Manageable windows: \(model.windows.count)") {
             VStack(alignment: .leading, spacing: 10) {
@@ -84,18 +133,85 @@ struct ContentView: View {
                 } else if model.windows.isEmpty {
                     Text("No manageable windows were found.").foregroundStyle(.secondary)
                 }
+                Toggle("Show window titles (may contain sensitive information)", isOn: $showWindowTitles)
+                Text("Only windows exposing a usable AX runtime identifier can be explicitly selected for external mutation tests. All other discovered windows remain read-only.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 ForEach(model.windows) { window in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(window.applicationName).font(.headline)
-                        Text(window.title?.isEmpty == false ? window.title! : "Untitled window")
-                            .lineLimit(1)
-                            .help(window.title ?? "")
+                        if showWindowTitles {
+                            Text(window.title?.isEmpty == false ? window.title! : "Untitled window")
+                                .lineLimit(1)
+                                .help(window.title ?? "")
+                        }
                         Text("PID: \(window.runtimeIdentity.processIdentifier)  Bundle: \(window.bundleIdentifier ?? "Unavailable")")
                         Text("AX ID: \(window.runtimeIdentity.accessibilityIdentifier ?? "Unavailable")  Subrole: \(window.subrole ?? "Unavailable")")
                         Text("Frame: \(window.frame.diagnosticDescription)  Display: \(window.displayID.map(String.init) ?? "Unmapped")")
                         Text("Minimized: \(window.isMinimized.diagnosticDescription)  Fullscreen: \(window.isFullscreen.diagnosticDescription)")
+                        if let exclusionReason = model.exclusionReason(for: window) {
+                            Label("NEVER MANAGE — \(exclusionReason)", systemImage: "nosign")
+                                .foregroundStyle(.red)
+                        } else {
+                            HStack {
+                                Button(model.selectedTestWindowID == window.runtimeIdentity ? "Selected Test Window" : "Use as Capture/Restore Test Window") {
+                                    model.selectTestWindow(window)
+                                }
+                                Toggle("Test set", isOn: Binding(
+                                    get: { model.isSelectedInTestSet(window) },
+                                    set: { model.setTestSetSelection(window, selected: $0) }
+                                ))
+                                .toggleStyle(.checkbox)
+                            }
+                        }
                     }
                     .fontDesign(.monospaced)
+                    Divider()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+        }
+    }
+
+    private func snapshotSection(_ snapshot: WorkspaceSnapshot) -> some View {
+        GroupBox("Last read-only desktop snapshot") {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Captured windows: \(snapshot.windows.count)")
+                Text("Displays represented: \(snapshot.representedDisplayIDs.count)")
+                Text("Captured: \(snapshot.capturedAt.formatted(date: .abbreviated, time: .shortened))")
+                Text("No external windows were changed.").foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+        }
+    }
+
+    private func selectedSetSnapshotSection(_ snapshot: WorkspaceSnapshot) -> some View {
+        GroupBox("Selected test-set snapshot") {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Captured windows: \(snapshot.windows.count)")
+                Text("Displays represented: \(snapshot.representedDisplayIDs.count)")
+                Text("Read-only capture; no windows were changed.").foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+        }
+    }
+
+    private func restoreReportSection(_ report: WindowRestoreReport) -> some View {
+        GroupBox("Restore completed") {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("\(report.requestedCount) windows requested · \(report.exactCount) exact · \(report.adjustedCount) adjusted · \(report.failedCount) failed · \(report.excludedCount) excluded")
+                ForEach(report.results) { result in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(result.applicationName) (PID \(result.processIdentifier)): \(result.status.displayName)")
+                        Text(result.message).foregroundStyle(.secondary)
+                        if let actualFrame = result.actualFrame {
+                            Text("Requested: \(result.requestedFrame.diagnosticDescription) · Actual: \(actualFrame.diagnosticDescription)")
+                                .fontDesign(.monospaced)
+                        }
+                    }
                     Divider()
                 }
             }

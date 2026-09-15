@@ -28,6 +28,8 @@ final class BlazaresSpacesUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["accessibilityStatus"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["displaysSection"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Window Control Lab"].exists)
+        XCTAssertTrue(app.buttons["Capture Desktop Snapshot"].exists)
     }
 
     @MainActor
