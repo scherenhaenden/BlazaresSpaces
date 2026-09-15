@@ -13,5 +13,6 @@ struct BlazaresSpacesApp: App {
         WindowGroup {
             ContentView()
         }
+        .defaultSize(width: 900, height: 700)
     }
 }
