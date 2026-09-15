@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarControllerView: View {
     @EnvironmentObject private var model: DiagnosticsViewModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -50,6 +51,7 @@ struct MenuBarControllerView: View {
             currentWindowSection
             Divider()
             Button("Open BlazaresSpaces") {
+                openWindow(id: "main")
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }
         }

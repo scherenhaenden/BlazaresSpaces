@@ -43,7 +43,8 @@ struct NativeSpacesController: NativeSpacesControlling {
             queue: nil
         ) { _ in semaphore.signal() }
         defer { NSWorkspace.shared.notificationCenter.removeObserver(token) }
-        guard postControlArrow(delta > 0 ? 124 : 123, count: abs(delta)) else {
+        let arrowKeyCode: CGKeyCode = delta > 0 ? 124 : 123
+        guard postControlArrow(arrowKeyCode, count: abs(delta)) else {
             return .failed("Could not post Mission Control shortcut; check Accessibility permission")
         }
         let targetRuntimeID = target.spacesByDisplay[current.displayIdentifier]?.runtimeID
@@ -55,23 +56,40 @@ struct NativeSpacesController: NativeSpacesControlling {
         // topology snapshot is the reliable confirmation path. Some macOS
         // versions deliver the notification late or without the expected
         // object while Mission Control is animating.
+        if waitForTarget(targetRuntimeID, semaphore: semaphore, timeout: timeout) {
+            return .activated
+        }
+
+        // Some installations have Control-arrow enabled in the preference
+        // database but Mission Control does not consume synthetic arrow
+        // events. The user-facing “Switch to Desktop N” shortcuts are another
+        // public path; when enabled, Control+N activates the positional Space
+        // directly. Try it only after the arrow path has been fully verified
+        // as unsuccessful, so a delayed arrow transition cannot be overridden.
+        guard let numberKeyCode = numberKeyCode(for: virtualPosition),
+              postControlShortcut(numberKeyCode) else {
+            return .failed("Control-arrow was posted but no native transition was observed after \(timeout)s; Desktop-N fallback is unavailable for Virtual Space \(virtualPosition)")
+        }
+        if waitForTarget(targetRuntimeID, semaphore: semaphore, timeout: min(timeout, 2.0)) {
+            return .activated
+        }
+        return .failed("Control-arrow and Control+\(virtualPosition) were posted, but macOS did not activate or report native Desktop \(virtualPosition)")
+    }
+
+    private nonisolated func waitForTarget(
+        _ targetRuntimeID: UInt64,
+        semaphore: DispatchSemaphore,
+        timeout: TimeInterval
+    ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
-        var notificationObserved = false
         while Date() < deadline {
-            if semaphore.wait(timeout: .now() + 0.1) == .success {
-                notificationObserved = true
-            }
+            _ = semaphore.wait(timeout: .now() + 0.1)
             if let refreshed = provider.readTopology().value,
                refreshed.spaces.contains(where: { $0.runtimeID == targetRuntimeID && $0.isCurrent }) {
-                return .activated
-            }
-            if notificationObserved {
-                Thread.sleep(forTimeInterval: 0.05)
+                return true
             }
         }
-        return .failed(notificationObserved
-            ? "Native Space changed notification arrived, but target Desktop \(virtualPosition) was not verified"
-            : "Native Space transition was not observed before timeout (waited \(timeout)s)")
+        return false
     }
 
     private nonisolated func activeDisplayIdentifier(in topology: NativeSpaceTopology) -> String? {
@@ -93,21 +111,37 @@ struct NativeSpacesController: NativeSpacesControlling {
             // modifier key transition, rather than only an arrow event with
             // the Control flag attached. This also mirrors a physical key
             // press and works with the user's enabled Control-arrow shortcut.
-            guard let controlDown = CGEvent(keyboardEventSource: source, virtualKey: 59, keyDown: true),
-                  let controlUp = CGEvent(keyboardEventSource: source, virtualKey: 59, keyDown: false),
-                  let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-                  let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else { return false }
-            controlDown.post(tap: .cghidEventTap)
-            Thread.sleep(forTimeInterval: 0.01)
-            down.flags = .maskControl
-            up.flags = .maskControl
-            down.post(tap: .cghidEventTap)
-            up.post(tap: .cghidEventTap)
-            Thread.sleep(forTimeInterval: 0.01)
-            controlUp.flags = []
-            controlUp.post(tap: .cghidEventTap)
+            guard postControlShortcut(keyCode, source: source) else { return false }
         }
         return true
+    }
+
+    private nonisolated func postControlShortcut(_ keyCode: CGKeyCode) -> Bool {
+        guard let source = CGEventSource(stateID: .hidSystemState) else { return false }
+        return postControlShortcut(keyCode, source: source)
+    }
+
+    private nonisolated func postControlShortcut(_ keyCode: CGKeyCode, source: CGEventSource) -> Bool {
+        guard let controlDown = CGEvent(keyboardEventSource: source, virtualKey: 59, keyDown: true),
+              let controlUp = CGEvent(keyboardEventSource: source, virtualKey: 59, keyDown: false),
+              let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else { return false }
+        controlDown.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.01)
+        down.flags = .maskControl
+        up.flags = .maskControl
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.01)
+        controlUp.flags = []
+        controlUp.post(tap: .cghidEventTap)
+        return true
+    }
+
+    private nonisolated func numberKeyCode(for position: Int) -> CGKeyCode? {
+        guard (1...9).contains(position) else { return nil }
+        // macOS virtual key codes for the number row 1...9.
+        return CGKeyCode(17 + position)
     }
 }
 

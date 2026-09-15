@@ -12,7 +12,7 @@ struct BlazaresSpacesApp: App {
     @StateObject private var model = DiagnosticsViewModel()
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("BlazaresSpaces", id: "main") {
             DailyDriverDashboardView()
                 .environmentObject(model)
         }
