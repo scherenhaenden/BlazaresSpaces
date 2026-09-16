@@ -42,6 +42,8 @@ final class WorkspaceApplicationService: ObservableObject {
     @Published private(set) var restoreReport: WindowRestoreReport?
     @Published private(set) var focusedWindowState: FocusedWindowState = .none
     @Published private(set) var nativeSpaceTopology: NativeSpaceTopology?
+    @Published private(set) var nativeSpaceCapabilities: NativeSpaceCapabilities = .unavailable
+    @Published private(set) var nativeSpaceMappings: [NativeSpaceMapping] = []
     @Published private(set) var nativeSpaceReadStatus = "Native Spaces not refreshed"
     @Published private(set) var nativeSpaceOperationLog: [String] = []
     @Published private(set) var isNativeActivationInProgress = false
@@ -52,6 +54,7 @@ final class WorkspaceApplicationService: ObservableObject {
     let nativeSpacesProvider: any NativeSpacesProviding
     let nativeSpacesController: any NativeSpacesControlling
     let nativeSpaceLogStore: NativeSpaceLogStore
+    let nativeSpaceMappingStore: NativeSpaceMappingStore
     let windowController: any WindowControlling
     let displayProvider: any DisplayTopologyProviding
     let permissionManager: any AccessibilityChecking
@@ -83,7 +86,8 @@ final class WorkspaceApplicationService: ObservableObject {
             activationStrategyProvider: LogicalVirtualSpaceActivationAdapter(),
             nativeSpacesProvider: SkyLightNativeSpacesProvider(),
             nativeSpacesController: NativeSpacesController(),
-            nativeSpaceLogStore: NativeSpaceLogStore()
+            nativeSpaceLogStore: NativeSpaceLogStore(),
+            nativeSpaceMappingStore: NativeSpaceMappingStore()
         )
     }
 
@@ -101,7 +105,8 @@ final class WorkspaceApplicationService: ObservableObject {
         activationStrategyProvider: any VirtualSpaceActivationStrategyProviding = LogicalVirtualSpaceActivationAdapter(),
         nativeSpacesProvider: any NativeSpacesProviding = SkyLightNativeSpacesProvider(),
         nativeSpacesController: any NativeSpacesControlling = NativeSpacesController(),
-        nativeSpaceLogStore: NativeSpaceLogStore = NativeSpaceLogStore()
+        nativeSpaceLogStore: NativeSpaceLogStore = NativeSpaceLogStore(),
+        nativeSpaceMappingStore: NativeSpaceMappingStore = NativeSpaceMappingStore()
     ) {
         self.windowDiscovery = windowDiscovery
         self.focusedWindowProvider = focusedWindowProvider
@@ -109,6 +114,7 @@ final class WorkspaceApplicationService: ObservableObject {
         self.nativeSpacesProvider = nativeSpacesProvider
         self.nativeSpacesController = nativeSpacesController
         self.nativeSpaceLogStore = nativeSpaceLogStore
+        self.nativeSpaceMappingStore = nativeSpaceMappingStore
         self.windowController = windowController
         self.displayProvider = displayProvider
         self.permissionManager = permissionManager
@@ -120,6 +126,7 @@ final class WorkspaceApplicationService: ObservableObject {
 
         Task { @MainActor [weak self] in
             await self?.loadPersistedState()
+            await self?.loadNativeSpaceMappings()
         }
     }
 
@@ -194,6 +201,7 @@ final class WorkspaceApplicationService: ObservableObject {
     }
 
     func refreshNativeSpaceTopology() {
+        nativeSpaceCapabilities = nativeSpacesController.capabilities()
         switch nativeSpacesProvider.readTopology() {
         case let .success(topology):
             nativeSpaceTopology = topology
@@ -206,6 +214,30 @@ final class WorkspaceApplicationService: ObservableObject {
             case let .unavailable(message), let .malformedData(message):
                 nativeSpaceReadStatus = "Native Space read failed: \(message)"
                 appendNativeSpaceLog("READ failed · \(message)")
+            }
+        }
+    }
+
+    private func loadNativeSpaceMappings() async {
+        switch await nativeSpaceMappingStore.load() {
+        case let .loaded(mappings):
+            nativeSpaceMappings = mappings
+        case .missing, .invalid, .ioFailure:
+            nativeSpaceMappings = []
+        }
+    }
+
+    func saveNativeSpaceMappings(_ mappings: [NativeSpaceMapping]) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            switch await nativeSpaceMappingStore.save(mappings) {
+            case let .loaded(saved):
+                nativeSpaceMappings = saved
+                actionStatus = "Native Space mappings saved."
+            case let .invalid(message), let .ioFailure(message):
+                actionStatus = "Native Space mappings were not saved: \(message)"
+            case .missing:
+                break
             }
         }
     }

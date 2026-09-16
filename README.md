@@ -1,5 +1,13 @@
 # BlazaresSpaces
 
+## 0.4.0 Native Spaces foundation
+
+The 0.4.0 branch adds a capability-gated, read-only SkyLight topology bridge and
+an experimental global native-Space focus path. UUID-preferred identity,
+conservative reconciliation, and the logical parking/restoration backend remain
+separate. Native create, destroy, and window movement stay unavailable until
+they can be verified safely on the target macOS release. See the [research](docs/0.4.0-NATIVE-SPACES-RESEARCH.md), [architecture](docs/0.4.0-NATIVE-SPACES-ARCHITECTURE.md), and [ADR](docs/adr/0004-native-spaces-private-api.md).
+
 KDE-style global Virtual Spaces for macOS.
 
 BlazaresSpaces is an experimental, open-source macOS Virtual Space manager focused on multi-monitor context switching. One Virtual Space spans all connected displays.

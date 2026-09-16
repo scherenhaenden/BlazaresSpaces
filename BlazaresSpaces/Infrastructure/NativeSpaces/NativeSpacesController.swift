@@ -17,6 +17,28 @@ struct NativeSpacesController: NativeSpacesControlling {
         self.timeout = timeout
     }
 
+    nonisolated func capabilities() -> NativeSpaceCapabilities {
+        // Discovery is intentionally reported by the provider. Mutation via
+        // synthetic Dock gestures is supported only as an explicit experimental
+        // focus path; create/destroy/move remain unavailable.
+        switch provider.readTopology() {
+        case .success:
+            return NativeSpaceCapabilities(discovery: true, create: false, destroy: false, focus: true, moveWindow: false, reasons: ["Focus uses an experimental Dock gesture; topology must be revalidated immediately before use"])
+        case let .failure(error):
+            return NativeSpaceCapabilities(discovery: false, create: false, destroy: false, focus: false, moveWindow: false, reasons: [String(describing: error)])
+        }
+    }
+
+    nonisolated func focusSpace(_ space: NativeSpaceDescriptor, topology: NativeSpaceTopology) -> NativeSpaceActivationResult {
+        guard topology.spaces.contains(where: { $0.runtimeID == space.runtimeID && $0.kind == .userDesktop }) else {
+            return .failed("Refused to focus a stale or non-user native Space")
+        }
+        guard let position = NativeSpaceTopologyMapper().bindings(for: topology).first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == space.runtimeID } })?.virtualSpacePosition else {
+            return .failed("Native Space has no conservative Virtual Space mapping")
+        }
+        return activate(virtualPosition: position, topology: topology)
+    }
+
     nonisolated func activate(virtualPosition: Int, topology: NativeSpaceTopology) -> NativeSpaceActivationResult {
         guard virtualPosition > 0 else { return .failed("Virtual Space position must be positive") }
         let bindings = NativeSpaceTopologyMapper().bindings(for: topology)
@@ -41,11 +63,11 @@ struct NativeSpacesController: NativeSpacesControlling {
             let displaySpaces = topology.spaces.filter { $0.displayIdentifier == display.displayIdentifier && $0.kind == .userDesktop }
             guard let currentSpace = displaySpaces.first(where: { $0.isCurrent }),
                   let currentPosition = bindings.first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == currentSpace.runtimeID } })?.virtualSpacePosition else {
-                failures.append("display (display.displayIdentifier): current desktop unresolved")
+                failures.append("display \(display.displayIdentifier): current desktop unresolved")
                 continue
             }
             guard let targetSpace = bindings.first(where: { $0.virtualSpacePosition == virtualPosition })?.spacesByDisplay[display.displayIdentifier] else {
-                failures.append("display (display.displayIdentifier): target Desktop (virtualPosition) unavailable")
+                failures.append("display \(display.displayIdentifier): target Desktop \(virtualPosition) unavailable")
                 continue
             }
             if currentPosition == virtualPosition {

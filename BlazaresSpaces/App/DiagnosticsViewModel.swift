@@ -115,6 +115,8 @@ final class DiagnosticsViewModel: ObservableObject {
     var excludedApplicationNames: [String] { service.managementPolicy.excludedApplicationNames }
     var focusedWindowState: WorkspaceApplicationService.FocusedWindowState { service.focusedWindowState }
     var nativeSpaceTopology: NativeSpaceTopology? { service.nativeSpaceTopology }
+    var nativeSpaceCapabilities: NativeSpaceCapabilities { service.nativeSpaceCapabilities }
+    var nativeSpaceMappings: [NativeSpaceMapping] { service.nativeSpaceMappings }
     var nativeSpaceReadStatus: String { service.nativeSpaceReadStatus }
     var nativeSpaceOperationLog: [String] { service.nativeSpaceOperationLog }
     var isNativeActivationInProgress: Bool { service.isNativeActivationInProgress }

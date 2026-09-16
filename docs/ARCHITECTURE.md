@@ -3,16 +3,15 @@
 ## Product vocabulary and native Spaces boundary
 
 The user-facing context managed by BlazaresSpaces is a **Virtual Space**. It
-is a logical, application-owned context spanning all connected displays; it is
-not a Mission Control **macOS Space**. The native feasibility decision and
-public-API limits are recorded in [NATIVE-SPACES-FEASIBILITY.md](NATIVE-SPACES-FEASIBILITY.md).
+is a logical, application-owned context spanning all connected displays. Native
+Mission Control Spaces are an optional infrastructure backend; its boundary,
+risks and fallback policy are recorded in [0.4.0-NATIVE-SPACES-ARCHITECTURE.md](0.4.0-NATIVE-SPACES-ARCHITECTURE.md).
 
 Activation is deliberately behind an application boundary. The shipped
 `LogicalVirtualSpaceActivationAdapter` routes Virtual Space changes through the
-serialized managed-window parking/restoration engine. A future native adapter
-may only be added if Apple documents a stable public API for the required
-operations; private Mission Control, WindowServer, synthesized keyboard, and
-undocumented automation techniques are out of scope.
+serialized managed-window parking/restoration engine. The experimental native
+adapter is capability-gated and independently verified. Private APIs are
+isolated in Infrastructure; see ADR 0004.
 
 This document describes the checked-in implementation at the start of the 0.2.0 milestone. Where it states an **0.2.0 integration boundary**, that boundary is required work, not a claim that the behavior is already available.
 

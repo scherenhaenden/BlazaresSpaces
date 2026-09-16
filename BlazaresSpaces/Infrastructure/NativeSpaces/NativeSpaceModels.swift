@@ -27,6 +27,42 @@ nonisolated struct NativeSpaceTopology: Equatable, Sendable {
     let displays: [NativeDisplayDescriptor]
     let spaces: [NativeSpaceDescriptor]
     let separateSpaces: Bool
+
+    /// Returns a deterministic snapshot suitable for comparison and planning.
+    /// Runtime IDs are retained, but never become durable Virtual Space IDs.
+    var normalized: NativeSpaceTopology {
+        let orderedDisplays = displays.sorted { $0.displayIdentifier < $1.displayIdentifier }
+        let displayOrder = Dictionary(uniqueKeysWithValues: orderedDisplays.enumerated().map { ($1.displayIdentifier, $0) })
+        let orderedSpaces = spaces.sorted {
+            let lhsDisplay = displayOrder[$0.displayIdentifier] ?? .max
+            let rhsDisplay = displayOrder[$1.displayIdentifier] ?? .max
+            if lhsDisplay != rhsDisplay { return lhsDisplay < rhsDisplay }
+            if $0.position != $1.position { return $0.position < $1.position }
+            return $0.runtimeID < $1.runtimeID
+        }
+        return NativeSpaceTopology(displays: orderedDisplays, spaces: orderedSpaces, separateSpaces: separateSpaces)
+    }
+}
+
+nonisolated struct NativeSpaceCapabilities: Equatable, Sendable {
+    let discovery: Bool
+    let create: Bool
+    let destroy: Bool
+    let focus: Bool
+    let moveWindow: Bool
+    let reasons: [String]
+
+    static let unavailable = NativeSpaceCapabilities(
+        discovery: false, create: false, destroy: false, focus: false,
+        moveWindow: false, reasons: ["SkyLight bridge unavailable"]
+    )
+}
+
+nonisolated enum NativeSpaceOperationError: Error, Equatable, Sendable {
+    case unavailable(String)
+    case staleIdentity(String)
+    case unsafe(String)
+    case failed(String)
 }
 
 nonisolated struct NativeVirtualSpaceBinding: Equatable, Sendable {
@@ -47,7 +83,8 @@ nonisolated struct NativeSpaceTopologyMapper: Sendable {
         // different counts. Keep partial positional bindings so the active
         // display can still be switched; callers decide whether completeness
         // is required for a coordinated multi-display operation.
-        let maximumCount = ordinaryByDisplay.values.map(\.count).max() ?? 0
+        let counts = ordinaryByDisplay.values.map(\.count)
+        let maximumCount = topology.separateSpaces ? (counts.max() ?? 0) : (counts.min() ?? 0)
         return (0..<maximumCount).map { index in
             NativeVirtualSpaceBinding(
                 virtualSpacePosition: index + 1,

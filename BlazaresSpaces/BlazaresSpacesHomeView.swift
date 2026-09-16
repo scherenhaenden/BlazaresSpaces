@@ -6,6 +6,7 @@ struct BlazaresSpacesHomeView: View {
     @Environment(\.openWindow) private var openWindow
     @AppStorage(BlazaresSpacesAppDelegate.showDockIconDefaultsKey) private var showDockIcon = true
     @State private var dropTargetWorkspace: WorkspaceID?
+    @State private var showingOverview = true
 
     var body: some View {
         NavigationSplitView {
@@ -43,11 +44,29 @@ struct BlazaresSpacesHomeView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("DESKTOPS")
+                Text("OVERVIEW")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)
                     .padding(.top, 10)
+
+                Button {
+                    showingOverview = true
+                } label: {
+                    Label("All Windows & Screens", systemImage: "rectangle.3.group")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(showingOverview ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
+
+                Text("VIRTUAL SPACES")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
 
                 ScrollView {
                     VStack(spacing: 6) {
@@ -77,6 +96,7 @@ struct BlazaresSpacesHomeView: View {
         let isDropTarget = dropTargetWorkspace == id
 
         return Button {
+            showingOverview = false
             model.activateWorkspace(id)
         } label: {
             HStack(spacing: 10) {
@@ -155,9 +175,13 @@ struct BlazaresSpacesHomeView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    quickSettings
-                    hero
-                    detectedWindows
+                    if showingOverview {
+                        overview
+                    } else {
+                        quickSettings
+                        hero
+                        detectedWindows
+                    }
                     statusCard
                 }
                 .padding(24)
@@ -165,6 +189,61 @@ struct BlazaresSpacesHomeView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var overview: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Overview")
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+            Text("Everything discovered on this Mac, and where BlazaresSpaces can assign it.")
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                overviewMetric("Windows", value: model.windows.count, icon: "macwindow")
+                overviewMetric("Screens", value: model.displays.count, icon: "display.2")
+                overviewMetric("Virtual Spaces", value: model.workspaceIDs.count, icon: "square.3.layers.3d")
+            }
+
+            GroupBox("Connected screens") {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(model.displays) { display in
+                        Label(display.name + (display.isMain ? " · Main" : ""), systemImage: "display")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            GroupBox("Native Spaces") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(model.nativeSpaceReadStatus).foregroundStyle(.secondary)
+                    Text("Discovery: \(model.nativeSpaceCapabilities.discovery ? "AVAILABLE" : "UNAVAILABLE") · Focus: \(model.nativeSpaceCapabilities.focus ? "AVAILABLE" : "UNAVAILABLE")")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    if let topology = model.nativeSpaceTopology {
+                        ForEach(topology.displays, id: \.displayIdentifier) { display in
+                            let count = topology.spaces.filter { $0.displayIdentifier == display.displayIdentifier && $0.kind == .userDesktop }.count
+                            Label("\(display.displayIdentifier): \(count) ordinary Space(s)", systemImage: "square.stack.3d.up")
+                        }
+                    }
+                    Text("Saved mappings: \(model.nativeSpaceMappings.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            detectedWindows
+        }
+    }
+
+    private func overviewMetric(_ title: String, value: Int, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: icon).font(.caption).foregroundStyle(.secondary)
+            Text("\(value)").font(.title2.bold())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 11))
     }
 
     private var topBar: some View {

@@ -43,6 +43,28 @@ enum NativeSpaceActivationResult: Equatable, Sendable {
 
 protocol NativeSpacesControlling: Sendable {
     nonisolated func activate(virtualPosition: Int, topology: NativeSpaceTopology) -> NativeSpaceActivationResult
+    nonisolated func capabilities() -> NativeSpaceCapabilities
+    nonisolated func createSpace(on displayIdentifier: String) -> Result<NativeSpaceDescriptor, NativeSpaceOperationError>
+    nonisolated func destroySpace(_ space: NativeSpaceDescriptor, confirmedOwnedByBlazaresSpaces: Bool) -> Result<Void, NativeSpaceOperationError>
+    nonisolated func focusSpace(_ space: NativeSpaceDescriptor, topology: NativeSpaceTopology) -> NativeSpaceActivationResult
+    nonisolated func moveWindow(_ window: WindowRuntimeIdentity, to space: NativeSpaceDescriptor, topology: NativeSpaceTopology) -> Result<Void, NativeSpaceOperationError>
+}
+
+extension NativeSpacesControlling {
+    nonisolated func capabilities() -> NativeSpaceCapabilities { .unavailable }
+    nonisolated func createSpace(on displayIdentifier: String) -> Result<NativeSpaceDescriptor, NativeSpaceOperationError> {
+        .failure(.unavailable("Native Space creation is not implemented safely on this macOS release"))
+    }
+    nonisolated func destroySpace(_ space: NativeSpaceDescriptor, confirmedOwnedByBlazaresSpaces: Bool) -> Result<Void, NativeSpaceOperationError> {
+        guard confirmedOwnedByBlazaresSpaces else { return .failure(.unsafe("Refused to destroy an unowned native Space")) }
+        return .failure(.unavailable("Native Space destruction is disabled until ownership can be verified"))
+    }
+    nonisolated func focusSpace(_ space: NativeSpaceDescriptor, topology: NativeSpaceTopology) -> NativeSpaceActivationResult {
+        .unavailable("Native Space focus is unavailable")
+    }
+    nonisolated func moveWindow(_ window: WindowRuntimeIdentity, to space: NativeSpaceDescriptor, topology: NativeSpaceTopology) -> Result<Void, NativeSpaceOperationError> {
+        .failure(.unavailable("Native window movement is unavailable until the private ABI is verified"))
+    }
 }
 
 struct LogicalVirtualSpaceActivationAdapter: VirtualSpaceActivationStrategyProviding {
