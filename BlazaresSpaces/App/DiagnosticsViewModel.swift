@@ -240,6 +240,10 @@ final class DiagnosticsViewModel: ObservableObject {
         service.assignWindow(window, to: workspaceID, move: move)
     }
 
+    func assignWindow(_ window: WindowSnapshot, toScreen display: DisplaySnapshot, in workspaceID: WorkspaceID) {
+        service.assignWindow(window, to: display, in: workspaceID)
+    }
+
     func setWindowVisibleOnAllWorkspaces(_ window: WindowSnapshot, visible: Bool) {
         service.setWindowVisibleOnAllWorkspaces(window, visible: visible)
     }

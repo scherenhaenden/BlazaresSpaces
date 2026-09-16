@@ -57,6 +57,17 @@ struct WorkspaceDomainTests {
         #expect(manager.workspaceContaining(original.id) == [.workspace2])
     }
 
+    @Test func screenPlacementIsScopedToVirtualSpaceAndRequiresMembership() {
+        var manager = WorkspaceManager()
+        let first = member(identifier: "screened", workspaces: [.workspace1])
+        let second = DisplaySnapshot(id: 9, name: "Studio", frame: .zero, visibleFrame: .zero, backingScale: 1, isMain: false)
+        manager.moveToWorkspace(first, workspaceID: .workspace1)
+
+        #expect(manager.assignScreen(second, to: first.id, in: .workspace1))
+        #expect(manager.member(for: first.id)?.screenAssignments[.workspace1]?.displayID == 9)
+        #expect(!manager.assignScreen(second, to: first.id, in: .workspace2))
+    }
+
     @Test func managerKeepsOneCanonicalMemberForSharedWorkspaceProjections() {
         var manager = WorkspaceManager()
         var shared = member(identifier: "shared")

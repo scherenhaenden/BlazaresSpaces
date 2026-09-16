@@ -180,6 +180,7 @@ struct BlazaresSpacesHomeView: View {
                     } else {
                         quickSettings
                         hero
+                        virtualSpaceDetail
                         detectedWindows
                     }
                     statusCard
@@ -444,6 +445,41 @@ struct BlazaresSpacesHomeView: View {
         }
     }
 
+    private var virtualSpaceDetail: some View {
+        let workspaceID = model.workspaceManager.activeWorkspaceID
+        let workspace = model.workspaceManager.workspace(for: workspaceID)
+        return GroupBox("\(workspace.name) · screen placement") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Level 1: membership assigns a window to this Virtual Space. Level 2: screen placement assigns it to a connected display.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if workspace.members.isEmpty {
+                    Text("No managed windows assigned yet.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(workspace.members) { member in
+                        HStack {
+                            Label(member.authorizedWindow.applicationName, systemImage: "macwindow")
+                            Spacer()
+                            Text(member.screenAssignments[workspaceID]?.displayName ?? "No screen preference")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Menu("Screen") {
+                                ForEach(model.displays) { display in
+                                    Button(display.name) {
+                                        if let window = model.windows.first(where: { $0.runtimeIdentity == member.id }) {
+                                            model.assignWindow(window, toScreen: display, in: workspaceID)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private func detectedWindowRow(_ window: WindowSnapshot) -> some View {
         let exclusion = model.exclusionReason(for: window)
         let memberships = model.workspaceMembership(for: window)
@@ -498,6 +534,17 @@ struct BlazaresSpacesHomeView: View {
                     }
                 } label: {
                     Label("Move", systemImage: "arrow.right")
+                }
+                .menuStyle(.borderlessButton)
+
+                Menu {
+                    ForEach(model.workspaceIDs) { workspaceID in
+                        Button("Add to \(model.workspaceName(workspaceID))") {
+                            model.assignWindow(window, to: workspaceID, move: false)
+                        }
+                    }
+                } label: {
+                    Label("Add", systemImage: "plus")
                 }
                 .menuStyle(.borderlessButton)
             }

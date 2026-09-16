@@ -1,9 +1,21 @@
 import CoreGraphics
 import Foundation
 
+struct WorkspaceScreenAssignment: Codable, Equatable, Sendable {
+    let workspaceID: WorkspaceID
+    let displayID: UInt32
+    let displayName: String
+
+    init(workspaceID: WorkspaceID, displayID: UInt32, displayName: String) {
+        self.workspaceID = workspaceID
+        self.displayID = displayID
+        self.displayName = displayName
+    }
+}
+
 /// Stable in-memory identity for a logical workspace. The collection is dynamic;
 /// the two values below are only convenient defaults for the first experiment.
-struct WorkspaceID: RawRepresentable, Hashable, Identifiable, Sendable, CustomStringConvertible {
+struct WorkspaceID: RawRepresentable, Hashable, Identifiable, Sendable, Codable, CustomStringConvertible {
     let rawValue: String
 
     init(rawValue: String) { self.rawValue = rawValue }
@@ -27,6 +39,7 @@ struct WorkspaceMember: Identifiable, Equatable, Sendable {
     /// so a sticky window also appears in workspaces created later.
     var workspaceIDs: Set<WorkspaceID>
     var visibleOnAllWorkspaces: Bool
+    var screenAssignments: [WorkspaceID: WorkspaceScreenAssignment]
     var isParked = false
     var parkedFrame: CGRect?
 
@@ -35,7 +48,8 @@ struct WorkspaceMember: Identifiable, Equatable, Sendable {
         authorizedWindow: AuthorizedExternalWindow,
         logicalSnapshot: WindowSnapshot,
         workspaceIDs: Set<WorkspaceID> = [],
-        visibleOnAllWorkspaces: Bool = false
+        visibleOnAllWorkspaces: Bool = false,
+        screenAssignments: [WorkspaceID: WorkspaceScreenAssignment] = [:]
     ) {
         id = authorizedWindow.runtimeIdentity
         self.managedWindowID = managedWindowID
@@ -43,6 +57,7 @@ struct WorkspaceMember: Identifiable, Equatable, Sendable {
         self.logicalSnapshot = logicalSnapshot
         self.workspaceIDs = workspaceIDs
         self.visibleOnAllWorkspaces = visibleOnAllWorkspaces
+        self.screenAssignments = screenAssignments
     }
 }
 
@@ -198,6 +213,7 @@ struct WorkspaceManager: Equatable, Sendable {
             : order[0]
         for (managedWindowID, var member) in membersByManagedWindowID {
             member.workspaceIDs.formIntersection(Set(order))
+            member.screenAssignments = member.screenAssignments.filter { order.contains($0.key) }
             if member.workspaceIDs.isEmpty && !member.visibleOnAllWorkspaces {
                 membersByManagedWindowID.removeValue(forKey: managedWindowID)
             } else {
@@ -265,6 +281,16 @@ struct WorkspaceManager: Equatable, Sendable {
         storeCanonical(member)
     }
 
+    mutating func assignScreen(_ display: DisplaySnapshot, to identity: WindowRuntimeIdentity, in workspaceID: WorkspaceID) -> Bool {
+        guard var member = member(for: identity), workspaces[workspaceID] != nil else { return false }
+        guard member.visibleOnAllWorkspaces || member.workspaceIDs.contains(workspaceID) else { return false }
+        member.screenAssignments[workspaceID] = WorkspaceScreenAssignment(
+            workspaceID: workspaceID, displayID: display.id, displayName: display.name
+        )
+        storeCanonical(member)
+        return true
+    }
+
     mutating func replaceWorkspace(_ workspace: LogicalWorkspace) {
         guard var stored = workspaces[workspace.id] else { return }
         stored.name = workspace.name
@@ -298,6 +324,7 @@ struct WorkspaceManager: Equatable, Sendable {
         for member in allMembers {
             var updated = member
             updated.workspaceIDs.remove(workspaceID)
+            updated.screenAssignments.removeValue(forKey: workspaceID)
             storeCanonical(updated)
         }
     }
@@ -310,7 +337,8 @@ struct WorkspaceManager: Equatable, Sendable {
                 authorizedWindow: member.authorizedWindow,
                 logicalSnapshot: member.logicalSnapshot,
                 workspaceIDs: member.workspaceIDs,
-                visibleOnAllWorkspaces: member.visibleOnAllWorkspaces
+                visibleOnAllWorkspaces: member.visibleOnAllWorkspaces,
+                screenAssignments: member.screenAssignments
             )
             canonical.isParked = member.isParked
             canonical.parkedFrame = member.parkedFrame

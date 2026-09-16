@@ -57,19 +57,34 @@ nonisolated struct PersistedStateV1: Codable, Equatable, Sendable {
         let workspaceIDs: Set<String>
         let sticky: Bool
         let logicalGeometry: LogicalWindowGeometry
+        let screenAssignments: [WorkspaceScreenAssignment]
 
         init(
             id: ManagedWindowID,
             descriptor: PersistedWindowDescriptor,
             workspaceIDs: Set<String>,
             sticky: Bool,
-            logicalGeometry: LogicalWindowGeometry
+            logicalGeometry: LogicalWindowGeometry,
+            screenAssignments: [WorkspaceScreenAssignment] = []
         ) {
             self.id = id
             self.descriptor = descriptor
             self.workspaceIDs = workspaceIDs
             self.sticky = sticky
             self.logicalGeometry = logicalGeometry
+            self.screenAssignments = screenAssignments
+        }
+
+        private enum CodingKeys: String, CodingKey { case id, descriptor, workspaceIDs, sticky, logicalGeometry, screenAssignments }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(ManagedWindowID.self, forKey: .id)
+            descriptor = try container.decode(PersistedWindowDescriptor.self, forKey: .descriptor)
+            workspaceIDs = try container.decode(Set<String>.self, forKey: .workspaceIDs)
+            sticky = try container.decode(Bool.self, forKey: .sticky)
+            logicalGeometry = try container.decode(LogicalWindowGeometry.self, forKey: .logicalGeometry)
+            screenAssignments = try container.decodeIfPresent([WorkspaceScreenAssignment].self, forKey: .screenAssignments) ?? []
         }
     }
 

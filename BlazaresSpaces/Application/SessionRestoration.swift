@@ -122,7 +122,8 @@ extension PersistedStateV1 {
                 descriptor: descriptor,
                 workspaceIDs: Set(member.workspaceIDs.map(\.rawValue)),
                 sticky: member.visibleOnAllWorkspaces,
-                logicalGeometry: geometry
+                logicalGeometry: geometry,
+                screenAssignments: member.screenAssignments.values.sorted { $0.workspaceID.rawValue < $1.workspaceID.rawValue }
             )
         }
         return PersistedStateV1(

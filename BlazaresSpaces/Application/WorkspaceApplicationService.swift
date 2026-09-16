@@ -483,7 +483,11 @@ final class WorkspaceApplicationService: ObservableObject {
             workspaceIDs: Set(record.workspaceIDs.map { WorkspaceID($0) }),
             visibleOnAllWorkspaces: record.sticky
         )
-        workspaceManager.replaceMember(member, in: workspaceManager.activeWorkspaceID)
+        var restoredMember = member
+        restoredMember.screenAssignments = Dictionary(uniqueKeysWithValues: record.screenAssignments.map {
+            ($0.workspaceID, $0)
+        })
+        workspaceManager.replaceMember(restoredMember, in: workspaceManager.activeWorkspaceID)
         let result = windowController.restore(authorized, requested: snapshot)
         restoreReport = WindowRestoreReport(results: [result])
         if result.status == .restoredExactly || result.status == .restoredWithAdjustment {
@@ -786,6 +790,19 @@ final class WorkspaceApplicationService: ObservableObject {
             actionStatus = "Added \(window.applicationName) to \(workspaceName(workspaceID)) without removing existing memberships."
         }
         persistAuthoritativeState()
+    }
+
+    func assignWindow(_ window: WindowSnapshot, to display: DisplaySnapshot, in workspaceID: WorkspaceID) {
+        guard workspaceManager.member(for: window.runtimeIdentity) != nil else {
+            actionStatus = "Manage the window before assigning its screen placement."
+            return
+        }
+        guard workspaceManager.assignScreen(display, to: window.runtimeIdentity, in: workspaceID) else {
+            actionStatus = "The window is not a member of that Virtual Space."
+            return
+        }
+        persistAuthoritativeState()
+        actionStatus = "Assigned \(window.applicationName) to \(display.name) in \(workspaceName(workspaceID))."
     }
 
     func setWindowVisibleOnAllWorkspaces(_ window: WindowSnapshot, visible: Bool) {
