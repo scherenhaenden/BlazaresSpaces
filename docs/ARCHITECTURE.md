@@ -209,7 +209,9 @@ Physical AX behavior, permission prompts, real global shortcuts, clean-exit reco
 - A transition engine and optional Cube-style visualization after restoration is stable.
 - Human-inspectable configuration import/export.
 
-These are not implemented capabilities. Aggressive fuzzy matching, native Spaces/private APIs, automatic relaunch, tiling, cloud sync, telemetry, and z-order reconstruction remain outside 0.2.0.
+These are not implemented capabilities. Aggressive fuzzy matching, automatic relaunch,
+tiling, cloud sync, telemetry, and z-order reconstruction remain outside the current
+milestone. Native Spaces/private APIs are isolated as the optional 0.4.0 backend.
 
 ## Decision records
 

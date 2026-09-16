@@ -44,6 +44,33 @@ nonisolated struct NativeSpaceTopology: Equatable, Sendable {
     }
 }
 
+nonisolated struct NativeSpaceTopologyValidator: Sendable {
+    nonisolated init() {}
+
+    nonisolated func validate(_ topology: NativeSpaceTopology) -> Result<Void, NativeSpacesReadError> {
+        let displayIDs = topology.displays.map(\.displayIdentifier)
+        guard displayIDs.allSatisfy({ !$0.isEmpty }), Set(displayIDs).count == displayIDs.count else {
+            return .failure(.malformedData("Duplicate or empty native display identifier"))
+        }
+        let knownDisplays = Set(displayIDs)
+        let runtimeIDs = topology.spaces.map(\.runtimeID)
+        guard Set(runtimeIDs).count == runtimeIDs.count else {
+            return .failure(.malformedData("Duplicate native Space runtime ID"))
+        }
+        guard topology.spaces.allSatisfy({ knownDisplays.contains($0.displayIdentifier) }) else {
+            return .failure(.malformedData("Native Space references an unknown display"))
+        }
+        let uuids = topology.spaces.compactMap { space -> String? in
+            guard let uuid = space.uuid, !uuid.isEmpty else { return nil }
+            return space.displayIdentifier + "\u{1f}" + uuid
+        }
+        guard Set(uuids).count == uuids.count else {
+            return .failure(.malformedData("Duplicate native Space UUID on a display"))
+        }
+        return .success(())
+    }
+}
+
 nonisolated struct NativeSpaceCapabilities: Equatable, Sendable {
     let discovery: Bool
     let create: Bool

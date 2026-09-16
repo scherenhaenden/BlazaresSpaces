@@ -2,6 +2,34 @@ import Testing
 @testable import BlazaresSpaces
 
 struct NativeSpaceTopologyTests {
+    @Test func topologyValidatorRejectsDuplicateRuntimeIDs() {
+        let topology = NativeSpaceTopology(
+            displays: [.init(displayIdentifier: "A", currentSpaceRuntimeID: 1)],
+            spaces: [
+                .init(runtimeID: 1, uuid: "one", displayIdentifier: "A", position: 0, kind: .userDesktop, isCurrent: true),
+                .init(runtimeID: 1, uuid: "two", displayIdentifier: "A", position: 1, kind: .userDesktop, isCurrent: false)
+            ], separateSpaces: true
+        )
+        if case .failure(.malformedData) = NativeSpaceTopologyValidator().validate(topology) {
+            #expect(true)
+        } else {
+            #expect(false)
+        }
+    }
+
+    @Test func topologyValidatorRejectsSpacesOnUnknownDisplay() {
+        let topology = NativeSpaceTopology(
+            displays: [.init(displayIdentifier: "A", currentSpaceRuntimeID: 1)],
+            spaces: [.init(runtimeID: 1, uuid: "one", displayIdentifier: "B", position: 0, kind: .userDesktop, isCurrent: true)],
+            separateSpaces: true
+        )
+        if case .failure(.malformedData) = NativeSpaceTopologyValidator().validate(topology) {
+            #expect(true)
+        } else {
+            #expect(false)
+        }
+    }
+
     @Test func nativeTopologyNormalizationIsDeterministic() {
         let topology = NativeSpaceTopology(
             displays: [.init(displayIdentifier: "B", currentSpaceRuntimeID: 21), .init(displayIdentifier: "A", currentSpaceRuntimeID: 11)],

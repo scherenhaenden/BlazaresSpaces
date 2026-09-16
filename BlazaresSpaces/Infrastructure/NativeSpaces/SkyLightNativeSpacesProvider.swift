@@ -25,7 +25,9 @@ struct SkyLightNativeSpacesProvider: NativeSpacesProviding {
         guard let managed = copySpaces(connection)?.takeRetainedValue() else {
             return .failure(.malformedData("SLSCopyManagedDisplaySpaces returned no data"))
         }
-        return parse(managed)
+        let parsed = parse(managed)
+        guard case let .success(topology) = parsed else { return parsed }
+        return NativeSpaceTopologyValidator().validate(topology).map { topology.normalized }
     }
 
     private func parse(_ managed: CFArray) -> Result<NativeSpaceTopology, NativeSpacesReadError> {

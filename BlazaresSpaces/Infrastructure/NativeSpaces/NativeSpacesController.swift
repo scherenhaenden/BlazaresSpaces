@@ -75,7 +75,7 @@ struct NativeSpacesController: NativeSpacesControlling {
                 continue
             }
             guard let center = displayCenter(for: display.displayIdentifier) else {
-                failures.append("display (display.displayIdentifier): screen center unavailable")
+                failures.append("display \(display.displayIdentifier): screen center unavailable")
                 continue
             }
             CGWarpMouseCursorPosition(center)
