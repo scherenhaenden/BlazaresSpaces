@@ -66,7 +66,7 @@ struct NativeSpacesController: NativeSpacesControlling {
                 failures.append("display \(display.displayIdentifier): current desktop unresolved")
                 continue
             }
-            guard let targetSpace = bindings.first(where: { $0.virtualSpacePosition == virtualPosition })?.spacesByDisplay[display.displayIdentifier] else {
+            guard bindings.first(where: { $0.virtualSpacePosition == virtualPosition })?.spacesByDisplay[display.displayIdentifier] != nil else {
                 failures.append("display \(display.displayIdentifier): target Desktop \(virtualPosition) unavailable")
                 continue
             }

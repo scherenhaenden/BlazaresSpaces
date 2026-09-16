@@ -68,6 +68,37 @@ struct WorkspaceDomainTests {
         #expect(!manager.assignScreen(second, to: first.id, in: .workspace2))
     }
 
+    @Test func screenPlacementRoundTripsThroughPersistedState() throws {
+        var manager = WorkspaceManager()
+        let first = member(identifier: "persisted-screen", workspaces: [.workspace1])
+        manager.moveToWorkspace(first, workspaceID: .workspace1)
+        let display = DisplaySnapshot(id: 42, name: "Studio", frame: .zero, visibleFrame: .zero, backingScale: 2, isMain: false)
+        #expect(manager.assignScreen(display, to: first.id, in: .workspace1))
+
+        let state = PersistedStateV1.make(
+            from: manager,
+            shortcuts: GlobalShortcutConfiguration(),
+            displays: [display]
+        )
+        let decoded = try JSONDecoder().decode(PersistedStateV1.self, from: JSONEncoder().encode(state))
+        #expect(decoded.managedWindows.first?.screenAssignments == [
+            WorkspaceScreenAssignment(workspaceID: .workspace1, displayID: 42, displayName: "Studio")
+        ])
+    }
+
+    @Test func deletingWorkspacePrunesItsScreenPlacement() {
+        var manager = WorkspaceManager()
+        var first = member(identifier: "pruned-screen", workspaces: [.workspace1, .workspace2])
+        manager.moveToWorkspace(first, workspaceID: .workspace1)
+        manager.addToWorkspace(first, workspaceID: .workspace2)
+        let display = DisplaySnapshot(id: 42, name: "Studio", frame: .zero, visibleFrame: .zero, backingScale: 2, isMain: false)
+        #expect(manager.assignScreen(display, to: first.id, in: .workspace2))
+
+        #expect(manager.deleteWorkspace(.workspace2, moveExclusiveMembersTo: .workspace1))
+        first = manager.member(for: first.id)!
+        #expect(first.screenAssignments[.workspace2] == nil)
+    }
+
     @Test func managerKeepsOneCanonicalMemberForSharedWorkspaceProjections() {
         var manager = WorkspaceManager()
         var shared = member(identifier: "shared")

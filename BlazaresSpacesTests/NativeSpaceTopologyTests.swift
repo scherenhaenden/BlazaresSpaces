@@ -102,6 +102,25 @@ struct NativeSpaceTopologyTests {
         #expect(bindings[0].spacesByDisplay.count == 2)
     }
 
+    @Test func separateSpacesKeepsPartialBindingForDisplayWithExtraDesktop() {
+        let topology = NativeSpaceTopology(
+            displays: [
+                .init(displayIdentifier: "A", currentSpaceRuntimeID: 1),
+                .init(displayIdentifier: "B", currentSpaceRuntimeID: 2)
+            ],
+            spaces: [
+                .init(runtimeID: 1, uuid: nil, displayIdentifier: "A", position: 0, kind: .userDesktop, isCurrent: true),
+                .init(runtimeID: 11, uuid: nil, displayIdentifier: "A", position: 1, kind: .userDesktop, isCurrent: false),
+                .init(runtimeID: 12, uuid: nil, displayIdentifier: "A", position: 2, kind: .userDesktop, isCurrent: false),
+                .init(runtimeID: 2, uuid: nil, displayIdentifier: "B", position: 0, kind: .userDesktop, isCurrent: true)
+            ], separateSpaces: true
+        )
+
+        let bindings = NativeSpaceTopologyMapper().bindings(for: topology)
+        #expect(bindings.count == 3)
+        #expect(bindings[2].spacesByDisplay == ["A": topology.spaces[2]])
+    }
+
     @Test func reconcilerNeverSchedulesDestructionAndReviewsUnownedExistingSpace() {
         let topology = NativeSpaceTopology(
             displays: [.init(displayIdentifier: "A", currentSpaceRuntimeID: 1)],

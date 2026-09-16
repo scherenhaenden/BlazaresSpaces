@@ -58,11 +58,10 @@ nonisolated struct NativeTopologyReconciler: Sendable {
                 if let mapped = mappings.first(where: { $0.virtualSpaceID == virtualID && $0.displayIdentifier == display }),
                    let observed = topology.spaces.first(where: { mapped.nativeIdentity.matches($0) }) {
                     actions.append(.retain(NativeSpaceIdentity(observed)))
-                } else if let observed = binding?.spacesByDisplay[display] {
+                } else if binding?.spacesByDisplay[display] != nil {
                     // Existing user Spaces can be used for a mapping, but are
                     // never silently marked as app-owned.
                     actions.append(.review(displayIdentifier: display, reason: "Existing Space requires explicit mapping confirmation"))
-                    _ = observed
                 } else {
                     actions.append(.create(displayIdentifier: display))
                 }
