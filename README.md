@@ -1,11 +1,11 @@
 # BlazaresSpaces
 
-KDE-style global virtual desktops for macOS.
+KDE-style global Virtual Spaces for macOS.
 
-BlazaresSpaces is an experimental, open-source macOS virtual desktop manager focused on multi-monitor context switching. One workspace spans all connected displays.
+BlazaresSpaces is an experimental, open-source macOS Virtual Space manager focused on multi-monitor context switching. One Virtual Space spans all connected displays.
 
 ```text
-Desktop 1
+Virtual Space 1
 +-------------+-------------+-------------+
 | Display 1   | Display 2   | Display 3   |
 | Work        | Work        | Work        |
@@ -13,7 +13,7 @@ Desktop 1
 
                     SWITCH
 
-Desktop 2
+Virtual Space 2
 +-------------+-------------+-------------+
 | Display 1   | Display 2   | Display 3   |
 | Development | Development | Development |
@@ -22,9 +22,14 @@ Desktop 2
 
 BlazaresSpaces does not tile windows, create or manipulate native macOS Spaces, use private Mission Control/WindowServer APIs, or require disabling SIP. It is currently a proof of concept using public AppKit, CoreGraphics, and Accessibility APIs.
 
-## Current status — 0.2.0 in development
+The app-managed contexts are intentionally called Virtual Spaces. Native macOS
+Spaces remain a separate Mission Control layer; see
+[NATIVE-SPACES-FEASIBILITY.md](docs/NATIVE-SPACES-FEASIBILITY.md) for the public
+API assessment and MODE B decision.
 
-The 0.1.0 daily-driver global workspace MVP is the current functional baseline. The active 0.2.0 milestone is modularizing that baseline and adding versioned persistence plus conservative session restoration. The architectural rules and the exact distinction between current and pending behavior are documented in [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+## Current status — 0.3.0 in development
+
+The 0.3.0 daily-driver work builds on the versioned persistence and conservative restoration model. The architectural rules and the exact distinction between current and pending behavior are documented in [ARCHITECTURE.md](docs/ARCHITECTURE.md) and [the 0.3.0 acceptance document](docs/0.3.0-PERSONAL-DAILY-DRIVER.md).
 
 The target 0.2.0 design keeps runtime AX identity separate from durable window identity. Workspace configuration, many-to-many window membership, sticky semantics, and logical geometry will use an explicit versioned model. Relaunch discovery and matching remain read-only: an ambiguous candidate is never guessed, and no external window moves merely because BlazaresSpaces launched or loaded saved state.
 
@@ -50,7 +55,7 @@ The external test mode is opt-in per window. A discovered window is never mutabl
 
 The 0.0.3 experiment adds a controller for logical workspaces spanning all connected displays. Runtime window memberships are held in memory only. A selected window can be moved to one workspace, added to several workspaces, or marked **Show on all workspaces**; that sticky semantic also applies to workspaces created later. Shared windows remain visible during a switch, while only source-only windows are temporarily parked outside the union of display frames. Logical frames are kept separately from temporary parking frames.
 
-The 0.1.0 controller turns that experiment into a daily-driver MVP: desktops can be added, renamed, reordered, activated, and safely deleted; manageable windows expose explicit Move, Add, sticky, and Stop Managing actions; keyboard shortcuts and a menu-bar controller offer fast activation; and switching requests are serialized with latest-target semantics. Desktop names, order, active desktop, and shortcut configuration may be persisted, but runtime AX identities and window memberships are never persisted across restarts.
+The logical workspace controller supports adding, renaming, reordering, activating, and safely deleting Virtual Spaces. Positional order and the active Virtual Space are persisted in `workspaceOrder` and `activeWorkspaceID`; managed-window durable descriptors, memberships, and sticky state are also represented in the versioned state. Runtime AX identities and temporary parking state are not persisted. Focused-window quick actions revalidate the exact runtime identity before mutation, and `NEVER MANAGE` remains a hard exclusion.
 
 Workspace switching is deliberately opt-in and reversible: enable desktop switching, switch from the desktop manager, menu bar, or configured shortcuts, and use **RECOVER MANAGED WINDOWS** or **Exit & Recover** to restore selected windows. Partial failures, missing windows, unsupported minimized/fullscreen states, adjusted frames, topology changes, and timing metrics are reported per window. New or unselected windows remain unmanaged. There is no automatic adoption, native macOS Spaces integration, tiling, persistence of runtime identities, or crash recovery.
 

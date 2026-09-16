@@ -59,7 +59,7 @@ struct ContentView: View {
                 Button("Open Settings") { model.openAccessibilitySettings() }
             }
             Button("Window Control Lab") { openWindow(id: "window-control-lab") }
-            Button("Capture Desktop Snapshot") { model.captureAllWindows() }
+            Button("Capture macOS Spaces Snapshot") { model.captureAllWindows() }
             Button("Refresh") { model.refresh() }
                 .keyboardShortcut("r", modifiers: .command)
         }
@@ -203,20 +203,20 @@ struct ContentView: View {
     private var workspaceSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
-                Label("DESKTOP MANAGER", systemImage: "square.3.layers.3d")
+                Label("VIRTUAL SPACE MANAGER", systemImage: "square.3.layers.3d")
                     .font(.headline)
                     .foregroundStyle(.orange)
-                Text("Global desktops span all connected displays. Only explicitly managed windows can be assigned or controlled; discovery remains read-only.")
+                Text("Virtual Spaces span all connected displays. Only explicitly managed windows can be assigned or controlled; discovery remains read-only.")
                     .foregroundStyle(.secondary)
                 HStack {
                     if !model.experimentalWorkspaceModeEnabled {
-                        Button("Enable Desktop Switching") { model.enterExperimentalWorkspaceMode() }
+                        Button("Enable Virtual Space Switching") { model.enterExperimentalWorkspaceMode() }
                             .accessibilityIdentifier("enableDesktopSwitchingButton")
                     } else {
                         Button("RECOVER MANAGED WINDOWS") { model.recoverManagedWindows() }
                         Button("Exit & Recover") { model.exitExperimentalWorkspaceMode() }
                     }
-                    Button("Add Workspace") { model.addWorkspace() }
+                    Button("Add Virtual Space") { model.addWorkspace() }
                         .accessibilityIdentifier("addWorkspaceButton")
                     Button("Previous") { model.activatePreviousWorkspace() }
                     Button("Next") { model.activateNextWorkspace() }
@@ -240,7 +240,7 @@ struct ContentView: View {
 
                 if let result = model.workspaceSwitchResult {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Last workspace operation: " + (result.sourceWorkspaceID?.rawValue ?? "recovery/entry") + " → " + result.targetWorkspaceID.rawValue)
+                        Text("Last Virtual Space operation: " + (result.sourceWorkspaceID?.rawValue ?? "recovery/entry") + " → " + result.targetWorkspaceID.rawValue)
                             .font(.callout.bold())
                         Text("Processed \(result.metrics.windowsProcessed) · captured \(result.capturedCount) · parked \(result.parkedCount) · restored \(result.restoredCount) · adjusted \(result.adjustedCount) · missing \(result.missingCount) · failed \(result.failedCount)")
                             .font(.caption)
@@ -273,7 +273,7 @@ struct ContentView: View {
         let otherIDs = model.workspaceIDs.filter { $0 != id }
         return VStack(alignment: .leading, spacing: 5) {
             HStack {
-                TextField("Desktop name", text: workspaceNameBinding(id, currentName: workspace.name))
+                TextField("Virtual Space name", text: workspaceNameBinding(id, currentName: workspace.name))
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { model.renameWorkspace(id, name: workspaceNameDrafts[id.rawValue] ?? workspace.name) }
                 if model.workspaceManager.activeWorkspaceID == id {
@@ -299,7 +299,7 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             ForEach(workspace.members) { member in
-                Text("• " + member.authorizedWindow.applicationName + " · PID " + String(member.authorizedWindow.processIdentifier) + (member.visibleOnAllWorkspaces ? " · all desktops" : ""))
+                Text("• " + member.authorizedWindow.applicationName + " · PID " + String(member.authorizedWindow.processIdentifier) + (member.visibleOnAllWorkspaces ? " · all Virtual Spaces" : ""))
                     .font(.caption)
                     .fontDesign(.monospaced)
             }
@@ -355,7 +355,7 @@ struct ContentView: View {
                             }
                             if model.isExplicitlyAuthorizedForWorkspace(window) {
                                 HStack {
-                                    Menu("Workspace membership") {
+                                    Menu("Virtual Space membership") {
                                         ForEach(model.workspaceIDs) { workspaceID in
                                             Button("Move to \(model.workspaceName(workspaceID))") {
                                                 model.assignWindow(window, to: workspaceID, move: true)
@@ -364,10 +364,10 @@ struct ContentView: View {
                                                 model.assignWindow(window, to: workspaceID, move: false)
                                             }
                                         }
-                                        Button("Show on all workspaces") {
+                                        Button("Show on all Virtual Spaces") {
                                             model.setWindowVisibleOnAllWorkspaces(window, visible: true)
                                         }
-                                        Button("Stop showing on all workspaces") {
+                                        Button("Stop showing on all Virtual Spaces") {
                                             model.setWindowVisibleOnAllWorkspaces(window, visible: false)
                                         }
                                     }
@@ -396,7 +396,7 @@ struct ContentView: View {
     }
 
     private func snapshotSection(_ snapshot: WorkspaceSnapshot) -> some View {
-        GroupBox("Last read-only desktop snapshot") {
+        GroupBox("Last read-only macOS Spaces snapshot") {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Captured windows: \(snapshot.windows.count)")
                 Text("Displays represented: \(snapshot.representedDisplayIDs.count)")

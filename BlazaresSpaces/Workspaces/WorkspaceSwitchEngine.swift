@@ -8,12 +8,12 @@ struct WorkspaceSwitchExecution: Equatable, Sendable {
 }
 
 struct WorkspaceSwitchEngine {
-    let controller: AXExternalWindowController
+    let controller: any WindowControlling
     let parkingCalculator: ParkingPositionCalculator
     let planner: WorkspaceSwitchPlanner
 
     init(
-        controller: AXExternalWindowController = AXExternalWindowController(),
+        controller: any WindowControlling = AXExternalWindowController(),
         parkingCalculator: ParkingPositionCalculator = ParkingPositionCalculator(),
         planner: WorkspaceSwitchPlanner = WorkspaceSwitchPlanner()
     ) {

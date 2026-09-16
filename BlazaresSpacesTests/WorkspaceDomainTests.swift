@@ -183,4 +183,95 @@ struct WorkspaceDomainTests {
         #expect(decoded == geometry)
         #expect(decoded.absolute.cgRect == CGRect(x: -1200, y: 100, width: 900, height: 700))
     }
+
+    @Test func persistedWorkspaceOrderIsRestoredFromWorkspaceOrderField() {
+        let third = WorkspaceID("workspace-3")
+        let state = PersistedStateV1(
+            workspaces: [
+                .init(id: WorkspaceID.workspace1.rawValue, name: "One"),
+                .init(id: WorkspaceID.workspace2.rawValue, name: "Two"),
+                .init(id: third.rawValue, name: "Three")
+            ],
+            workspaceOrder: [third.rawValue, WorkspaceID.workspace1.rawValue, WorkspaceID.workspace2.rawValue],
+            activeWorkspaceID: third.rawValue,
+            shortcuts: .init(modifierRawValue: 0, desktopKeyCodes: [], nextKeyCode: 0, previousKeyCode: 0),
+            preferences: .init(),
+            managedWindows: []
+        )
+        var manager = WorkspaceManager()
+        manager.apply(configuration: .init(persisted: state))
+        #expect(manager.workspaceOrder == [third, .workspace1, .workspace2])
+        #expect(manager.activeWorkspaceID == third)
+    }
+
+    @Test func workspaceCrudPreservesPositionalOrderAndActiveSelection() {
+        var manager = WorkspaceManager()
+        let research = manager.addWorkspace(name: "Research")
+        let personal = manager.addWorkspace(name: "Personal")
+
+        #expect(manager.workspaceOrder == [.workspace1, .workspace2, research, personal])
+        #expect(manager.renameWorkspace(research, name: "Writing"))
+        #expect(manager.reorderWorkspaces([personal, .workspace1, research, .workspace2]))
+        #expect(manager.workspaceOrder == [personal, .workspace1, research, .workspace2])
+        #expect(manager.activate(research))
+        #expect(manager.activeWorkspaceID == research)
+
+        #expect(manager.deleteWorkspace(personal))
+        #expect(manager.workspaceOrder == [.workspace1, research, .workspace2])
+        #expect(manager.activeWorkspaceID == research)
+        #expect(manager.workspace(for: research).name == "Writing")
+    }
+
+    @Test func persistenceRoundTripRetainsOrderMembershipsAndStickyState() throws {
+        var manager = WorkspaceManager()
+        let development = manager.addWorkspace(name: "Development")
+        let personal = manager.addWorkspace(name: "Personal")
+        #expect(manager.reorderWorkspaces([development, .workspace1, personal, .workspace2]))
+        #expect(manager.activate(personal))
+
+        var managed = member(identifier: "persisted", workspaces: [.workspace1, development])
+        managed.visibleOnAllWorkspaces = true
+        manager.moveToWorkspace(managed, workspaceID: .workspace1)
+        manager.addToWorkspace(managed, workspaceID: development)
+        var canonical = manager.member(for: managed.id)!
+        canonical.visibleOnAllWorkspaces = true
+        manager.setVisibleOnAllWorkspaces(canonical, visible: true)
+
+        let state = PersistedStateV1.make(
+            from: manager,
+            shortcuts: GlobalShortcutConfiguration(),
+            displays: []
+        )
+        let decoded = try JSONDecoder().decode(
+            PersistedStateEnvelope.self,
+            from: JSONEncoder().encode(PersistedStateEnvelope(state: state))
+        ).state
+
+        #expect(decoded.workspaceOrder == manager.workspaceOrder.map(\.rawValue))
+        #expect(decoded.activeWorkspaceID == manager.activeWorkspaceID.rawValue)
+        #expect(decoded.managedWindows.count == 1)
+        #expect(decoded.managedWindows[0].workspaceIDs == Set([WorkspaceID.workspace1.rawValue, development.rawValue]))
+        #expect(decoded.managedWindows[0].sticky)
+        #expect(PersistedStateValidator().validate(decoded).isEmpty)
+    }
+
+    @Test func migratorRejectsInvalidPositionalOrderWithoutApplyingIt() throws {
+        let state = PersistedStateV1(
+            workspaces: [
+                .init(id: WorkspaceID.workspace1.rawValue, name: "One"),
+                .init(id: WorkspaceID.workspace2.rawValue, name: "Two")
+            ],
+            workspaceOrder: [WorkspaceID.workspace1.rawValue],
+            activeWorkspaceID: WorkspaceID.workspace1.rawValue,
+            shortcuts: .init(modifierRawValue: 0, desktopKeyCodes: [], nextKeyCode: 0, previousKeyCode: 0),
+            preferences: .init(),
+            managedWindows: []
+        )
+
+        let result = PersistedStateMigrator().decode(
+            JSONEncoder().encode(PersistedStateEnvelope(state: state))
+        )
+        if case .corrupted = result { #expect(true) }
+        else { #expect(Bool(false), "Invalid positional order must be rejected") }
+    }
 }

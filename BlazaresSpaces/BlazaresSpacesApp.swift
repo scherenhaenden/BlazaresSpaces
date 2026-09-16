@@ -9,22 +9,32 @@ import SwiftUI
 
 @main
 struct BlazaresSpacesApp: App {
+    @NSApplicationDelegateAdaptor(BlazaresSpacesAppDelegate.self) private var appDelegate
     @StateObject private var model = DiagnosticsViewModel()
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environmentObject(model)
+        WindowGroup("BlazaresSpaces", id: "main") {
+            VStack(spacing: 0) {
+                AccessibilityPermissionBanner()
+                BlazaresSpacesHomeView()
+            }
+            .environmentObject(model)
         }
-        .defaultSize(width: 900, height: 700)
+        .defaultSize(width: 1040, height: 700)
 
         MenuBarExtra {
-            MenuBarControllerView()
+            CompactMenuBarView()
                 .environmentObject(model)
         } label: {
             Label(model.workspaceName(model.workspaceManager.activeWorkspaceID), systemImage: "square.3.layers.3d")
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
+
+        Window("BlazaresSpaces Inspector", id: "inspector") {
+            ContentView()
+                .environmentObject(model)
+        }
+        .defaultSize(width: 900, height: 700)
 
         Window(WindowControlLabConstants.title, id: "window-control-lab") {
             WindowControlLabView()

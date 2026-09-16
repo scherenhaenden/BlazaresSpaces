@@ -27,6 +27,8 @@ final class DiagnosticsViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var screenParametersObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
+    private var focusedApplicationObserver: NSObjectProtocol?
+    private var nativeSpaceObserver: NSObjectProtocol?
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BlazaresSpaces", category: "DiagnosticsUI")
 
     init(service: WorkspaceApplicationService? = nil) {
@@ -45,7 +47,9 @@ final class DiagnosticsViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak appService] _ in
-            appService?.handleDisplayTopologyChange()
+            Task { @MainActor [weak appService] in
+                appService?.handleDisplayTopologyChange()
+            }
         }
 
         terminationObserver = NotificationCenter.default.addObserver(
@@ -53,13 +57,37 @@ final class DiagnosticsViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak appService] _ in
-            appService?.recoverForTermination()
+            Task { @MainActor [weak appService] in
+                appService?.recoverForTermination()
+            }
+        }
+
+        focusedApplicationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak appService] _ in
+            Task { @MainActor [weak appService] in
+                appService?.refreshFocusedWindow()
+            }
+        }
+
+        nativeSpaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: NSWorkspace.shared,
+            queue: .main
+        ) { [weak appService] _ in
+            Task { @MainActor [weak appService] in
+                appService?.refreshNativeSpaceTopology()
+            }
         }
     }
 
     deinit {
         if let screenParametersObserver { NotificationCenter.default.removeObserver(screenParametersObserver) }
         if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
+        if let focusedApplicationObserver { NSWorkspace.shared.notificationCenter.removeObserver(focusedApplicationObserver) }
+        if let nativeSpaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(nativeSpaceObserver) }
     }
 
     // MARK: - Forwarded Application State
@@ -68,10 +96,12 @@ final class DiagnosticsViewModel: ObservableObject {
     var displays: [DisplaySnapshot] { service.displays }
     var windows: [WindowSnapshot] { service.windows }
     var issues: [WindowDiscoveryIssue] { service.issues }
+    var isDiscoveringWindows: Bool { service.isDiscoveringWindows }
     var lastRefresh: Date? { service.lastRefresh }
     var workspaceManager: WorkspaceManager { service.workspaceManager }
     var workspaceIDs: [WorkspaceID] { service.workspaceManager.workspaceIDs }
     var experimentalWorkspaceModeEnabled: Bool { service.experimentalWorkspaceModeEnabled }
+    var experimentalNativeSpacesEnabled: Bool { service.experimentalNativeSpacesEnabled }
     var workspaceSwitchResult: WorkspaceSwitchResult? { service.workspaceSwitchResult }
     var workspaceSwitchState: WorkspaceSwitchState { service.workspaceSwitchState }
     var workspaceTopologyChanged: Bool { service.workspaceTopologyChanged }
@@ -81,6 +111,44 @@ final class DiagnosticsViewModel: ObservableObject {
     var restorationItems: [RestorationReviewItem] { service.restorationItems }
     var actionStatus: String? { localActionStatus ?? service.actionStatus }
     var restoreReport: WindowRestoreReport? { localRestoreReport ?? service.restoreReport }
+    var excludedBundleIdentifierPrefixes: [String] { service.managementPolicy.excludedBundleIdentifierPrefixes }
+    var excludedApplicationNames: [String] { service.managementPolicy.excludedApplicationNames }
+    var focusedWindowState: WorkspaceApplicationService.FocusedWindowState { service.focusedWindowState }
+    var nativeSpaceTopology: NativeSpaceTopology? { service.nativeSpaceTopology }
+    var nativeSpaceReadStatus: String { service.nativeSpaceReadStatus }
+    var nativeSpaceOperationLog: [String] { service.nativeSpaceOperationLog }
+    var isNativeActivationInProgress: Bool { service.isNativeActivationInProgress }
+    func updateManagementExclusions(applicationNames: [String], bundlePrefixes: [String]) {
+        service.updateManagementExclusions(applicationNames: applicationNames, bundlePrefixes: bundlePrefixes)
+    }
+
+    func manageAndMoveFocusedWindow(to workspaceID: WorkspaceID) {
+        _ = service.manageAndMoveFocusedWindow(to: workspaceID)
+    }
+
+    func manageAndShowFocusedWindow(on workspaceID: WorkspaceID) {
+        _ = service.manageAndShowFocusedWindow(on: workspaceID)
+    }
+
+    func moveFocusedWindow(to workspaceID: WorkspaceID) {
+        _ = service.moveFocusedWindow(to: workspaceID)
+    }
+
+    func showFocusedWindow(on workspaceID: WorkspaceID) {
+        _ = service.showFocusedWindow(on: workspaceID)
+    }
+
+    func setFocusedWindowSticky(_ visible: Bool) {
+        _ = service.setFocusedWindowSticky(visible)
+    }
+
+    func refreshNativeSpaceTopology() {
+        service.refreshNativeSpaceTopology()
+    }
+
+    func setExperimentalNativeSpacesEnabled(_ enabled: Bool) {
+        service.setExperimentalNativeSpacesEnabled(enabled)
+    }
 
     var externalTestModeEnabled: Bool {
         selectedTestWindowID != nil || !selectedTestSetIDs.isEmpty
@@ -152,6 +220,10 @@ final class DiagnosticsViewModel: ObservableObject {
 
     func isManaged(_ window: WindowSnapshot) -> Bool {
         service.isManaged(window)
+    }
+
+    func isWindowSticky(_ window: WindowSnapshot) -> Bool {
+        workspaceManager.member(for: window.runtimeIdentity)?.visibleOnAllWorkspaces ?? false
     }
 
     func manageWindow(_ window: WindowSnapshot) {

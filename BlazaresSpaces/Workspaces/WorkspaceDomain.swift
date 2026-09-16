@@ -270,7 +270,8 @@ struct WorkspaceManager: Equatable, Sendable {
         stored.name = workspace.name
         stored.members = []
         workspaces[workspace.id] = stored
-        for member in workspace.members where membersByManagedWindowID[member.managedWindowID] != nil {
+        for member in workspace.members {
+            guard let existing = membersByManagedWindowID[member.managedWindowID], existing != member else { continue }
             storeCanonical(member)
         }
     }

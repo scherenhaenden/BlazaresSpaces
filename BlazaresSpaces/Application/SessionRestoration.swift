@@ -85,7 +85,13 @@ struct SessionRestorationCoordinator: Sendable {
 
 extension WorkspaceManager.Configuration {
     init(persisted state: PersistedStateV1) {
-        self.workspaces = state.workspaces.map { .init(id: $0.id, name: $0.name) }
+        let byID = Dictionary(uniqueKeysWithValues: state.workspaces.map { ($0.id, $0) })
+        let orderedIDs = state.workspaceOrder.filter { byID[$0] != nil }
+        let fallbackIDs = state.workspaces.map(\.id).filter { !orderedIDs.contains($0) }
+        self.workspaces = (orderedIDs + fallbackIDs).compactMap { id in
+            guard let workspace = byID[id] else { return nil }
+            return .init(id: workspace.id, name: workspace.name)
+        }
         self.activeWorkspaceID = state.activeWorkspaceID
     }
 }

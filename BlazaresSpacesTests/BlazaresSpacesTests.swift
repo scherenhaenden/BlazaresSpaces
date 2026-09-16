@@ -135,16 +135,13 @@ struct BlazaresSpacesTests {
         #expect(policy.exclusionReason(for: window()) == nil)
     }
 
-    @Test func externalAuthorizationRequiresAXRuntimeIdentifier() {
+    @Test func externalAuthorizationUsesSessionRuntimeIdentityWhenAXIdentifierIsMissing() {
         let result = WindowAuthorization.authorize(window(identifier: nil), policy: .developmentDefaults)
-        let isExpectedFailure: Bool
-
-        if case .failure(.missingRuntimeIdentifier) = result {
-            isExpectedFailure = true
+        if case .success = result {
+            #expect(true)
         } else {
-            isExpectedFailure = false
+            #expect(false)
         }
-        #expect(isExpectedFailure)
     }
 
     @Test func externalAuthorizationRejectsExcludedWindow() {

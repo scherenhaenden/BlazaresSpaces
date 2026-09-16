@@ -12,14 +12,25 @@ import OSLog
 /// here and observe published application state.
 @MainActor
 final class WorkspaceApplicationService: ObservableObject {
+    enum FocusedWindowState: Equatable, Sendable {
+        case none
+        case unmanaged(WindowSnapshot)
+        case managed(WindowSnapshot, memberships: Set<WorkspaceID>, sticky: Bool)
+        case excluded(WindowSnapshot, reason: String)
+        case stale(WindowRuntimeIdentity)
+        case unavailable(String)
+    }
+
     @Published private(set) var accessibilityGranted = false
     @Published private(set) var displays: [DisplaySnapshot] = []
     @Published private(set) var windows: [WindowSnapshot] = []
     @Published private(set) var issues: [WindowDiscoveryIssue] = []
+    @Published private(set) var isDiscoveringWindows = false
     @Published private(set) var lastRefresh: Date?
 
     @Published private(set) var workspaceManager = WorkspaceManager()
     @Published private(set) var experimentalWorkspaceModeEnabled = false
+    @Published private(set) var experimentalNativeSpacesEnabled = false
     @Published private(set) var workspaceSwitchResult: WorkspaceSwitchResult?
     @Published private(set) var workspaceSwitchState: WorkspaceSwitchState = .idle
     @Published private(set) var workspaceTopologyChanged = false
@@ -29,37 +40,56 @@ final class WorkspaceApplicationService: ObservableObject {
     @Published private(set) var restorationItems: [RestorationReviewItem] = []
     @Published private(set) var actionStatus: String?
     @Published private(set) var restoreReport: WindowRestoreReport?
+    @Published private(set) var focusedWindowState: FocusedWindowState = .none
+    @Published private(set) var nativeSpaceTopology: NativeSpaceTopology?
+    @Published private(set) var nativeSpaceReadStatus = "Native Spaces not refreshed"
+    @Published private(set) var nativeSpaceOperationLog: [String] = []
+    @Published private(set) var isNativeActivationInProgress = false
 
     let windowDiscovery: any WindowDiscovering
+    let focusedWindowProvider: any FocusedWindowProviding
+    let activationStrategyProvider: any VirtualSpaceActivationStrategyProviding
+    let nativeSpacesProvider: any NativeSpacesProviding
+    let nativeSpacesController: any NativeSpacesControlling
+    let nativeSpaceLogStore: NativeSpaceLogStore
     let windowController: any WindowControlling
     let displayProvider: any DisplayTopologyProviding
     let permissionManager: any AccessibilityChecking
     let stateStore: any WorkspaceStatePersisting
     let shortcutManager: any HotkeyRegistering
-    let managementPolicy: WindowManagementPolicy
+    @Published private(set) var managementPolicy: WindowManagementPolicy
     let workspaceEngine: WorkspaceSwitchEngine
     let restorationCoordinator: SessionRestorationCoordinator
 
     private var persistedState: PersistedStateV1?
     private var switchQueue = WorkspaceSwitchRequestQueue()
+    private var windowDiscoveryTask: Task<Void, Never>?
+    private var nativeActivationTask: Task<Void, Never>?
+    private var hasCompletedInitialRefresh = false
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BlazaresSpaces", category: "ApplicationService")
 
     convenience init() {
         self.init(
             windowDiscovery: AXWindowDiscovery(),
+            focusedWindowProvider: AXFocusedWindowProvider(),
             windowController: AXExternalWindowController(),
             displayProvider: DisplayManager(),
             permissionManager: AccessibilityPermissionManager(),
             stateStore: AtomicJSONWorkspaceStateStore(),
             shortcutManager: GlobalShortcutManager(),
-            managementPolicy: .developmentDefaults,
+            managementPolicy: WindowManagementPolicyStore().load(),
             workspaceEngine: WorkspaceSwitchEngine(),
-            restorationCoordinator: SessionRestorationCoordinator()
+            restorationCoordinator: SessionRestorationCoordinator(),
+            activationStrategyProvider: LogicalVirtualSpaceActivationAdapter(),
+            nativeSpacesProvider: SkyLightNativeSpacesProvider(),
+            nativeSpacesController: NativeSpacesController(),
+            nativeSpaceLogStore: NativeSpaceLogStore()
         )
     }
 
     init(
         windowDiscovery: any WindowDiscovering,
+        focusedWindowProvider: any FocusedWindowProviding,
         windowController: any WindowControlling,
         displayProvider: any DisplayTopologyProviding,
         permissionManager: any AccessibilityChecking,
@@ -67,9 +97,18 @@ final class WorkspaceApplicationService: ObservableObject {
         shortcutManager: any HotkeyRegistering,
         managementPolicy: WindowManagementPolicy,
         workspaceEngine: WorkspaceSwitchEngine,
-        restorationCoordinator: SessionRestorationCoordinator
+        restorationCoordinator: SessionRestorationCoordinator,
+        activationStrategyProvider: any VirtualSpaceActivationStrategyProviding = LogicalVirtualSpaceActivationAdapter(),
+        nativeSpacesProvider: any NativeSpacesProviding = SkyLightNativeSpacesProvider(),
+        nativeSpacesController: any NativeSpacesControlling = NativeSpacesController(),
+        nativeSpaceLogStore: NativeSpaceLogStore = NativeSpaceLogStore()
     ) {
         self.windowDiscovery = windowDiscovery
+        self.focusedWindowProvider = focusedWindowProvider
+        self.activationStrategyProvider = activationStrategyProvider
+        self.nativeSpacesProvider = nativeSpacesProvider
+        self.nativeSpacesController = nativeSpacesController
+        self.nativeSpaceLogStore = nativeSpaceLogStore
         self.windowController = windowController
         self.displayProvider = displayProvider
         self.permissionManager = permissionManager
@@ -90,21 +129,39 @@ final class WorkspaceApplicationService: ObservableObject {
         let previousDisplays = displays
         accessibilityGranted = permissionManager.isTrusted
         displays = displayProvider.displays()
+        refreshNativeSpaceTopology()
 
-        if !previousDisplays.isEmpty && previousDisplays != displays {
+        if hasCompletedInitialRefresh && !previousDisplays.isEmpty && previousDisplays != displays {
             workspaceTopologyChanged = true
             workspaceSwitchState = .degraded(message: "Display topology changed; switching is paused until recovery or refresh validation.")
             actionStatus = "Display topology changed. Review the topology and use Recover Managed Windows before switching again."
+        } else if hasCompletedInitialRefresh && workspaceTopologyChanged {
+            // A second stable read validates that the display configuration has
+            // settled. This only clears the safety latch when no managed window
+            // is parked; it never performs window mutation.
+            let hasParkedWindows = workspaceManager.allMembers.contains(where: \.isParked)
+            let topologyPause: Bool = {
+                guard case let .degraded(message) = workspaceSwitchState else { return false }
+                return message.localizedCaseInsensitiveContains("topology")
+            }()
+            if topologyPause && !hasParkedWindows {
+                workspaceTopologyChanged = false
+                if workspaceSwitchState.isDegraded {
+                    workspaceSwitchState = .idle
+                }
+                actionStatus = "Display topology validated. Switching is available again."
+            }
         }
 
         if accessibilityGranted {
-            let result = windowDiscovery.discover(displays: displays)
-            windows = result.windows
-            issues = result.issues
-            evaluateRestoration()
+            beginWindowDiscovery(for: displays)
         } else {
+            windowDiscoveryTask?.cancel()
+            windowDiscoveryTask = nil
+            isDiscoveringWindows = false
             windows = []
             issues = []
+            focusedWindowState = .unavailable("Accessibility permission is unavailable.")
             shortcutManager.stop()
             globalShortcutsEnabled = false
             if experimentalWorkspaceModeEnabled {
@@ -116,9 +173,166 @@ final class WorkspaceApplicationService: ObservableObject {
             startGlobalShortcuts()
         }
         lastRefresh = Date()
+        hasCompletedInitialRefresh = true
+    }
+
+    private func beginWindowDiscovery(for currentDisplays: [DisplaySnapshot]) {
+        windowDiscoveryTask?.cancel()
+        let discovery = windowDiscovery
+        isDiscoveringWindows = true
+        windowDiscoveryTask = Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                discovery.discover(displays: currentDisplays)
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.windows = result.windows
+            self?.issues = result.issues
+            self?.isDiscoveringWindows = false
+            self?.refreshFocusedWindow()
+            self?.evaluateRestoration()
+        }
+    }
+
+    func refreshNativeSpaceTopology() {
+        switch nativeSpacesProvider.readTopology() {
+        case let .success(topology):
+            nativeSpaceTopology = topology
+            let count = topology.spaces.filter { $0.kind == .userDesktop }.count
+            nativeSpaceReadStatus = "Detected \(count) ordinary native Space(s) across \(topology.displays.count) display(s) · separate Spaces: \(topology.separateSpaces ? "ON" : "OFF")"
+            appendNativeSpaceLog("READ success · displays=\(topology.displays.count) · spaces=\(topology.spaces.count) · separateSpaces=\(topology.separateSpaces)")
+        case let .failure(error):
+            nativeSpaceTopology = nil
+            switch error {
+            case let .unavailable(message), let .malformedData(message):
+                nativeSpaceReadStatus = "Native Space read failed: \(message)"
+                appendNativeSpaceLog("READ failed · \(message)")
+            }
+        }
+    }
+
+    private func appendNativeSpaceLog(_ message: String) {
+        let timestamp = Date().formatted(.dateTime.hour().minute().second())
+        let line = "\(timestamp) · \(message)"
+        nativeSpaceOperationLog = Array((nativeSpaceOperationLog + [line]).suffix(100))
+        nativeSpaceLogStore.append(line)
+    }
+
+    // MARK: - Focused Window Quick Actions
+
+    func refreshFocusedWindow() {
+        guard accessibilityGranted else {
+            focusedWindowState = .unavailable("Accessibility permission is unavailable.")
+            return
+        }
+        guard let observation = focusedWindowProvider.focusedWindow(displays: displays),
+              observation.runtimeIdentity.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            if case let .unmanaged(previous) = focusedWindowState { focusedWindowState = .stale(previous.runtimeIdentity) }
+            else if case let .managed(previous, _, _) = focusedWindowState { focusedWindowState = .stale(previous.runtimeIdentity) }
+            else if case let .excluded(previous, _) = focusedWindowState { focusedWindowState = .stale(previous.runtimeIdentity) }
+            else { focusedWindowState = .none }
+            return
+        }
+        guard let focused = observation.snapshot ?? windows.first(where: { $0.runtimeIdentity == observation.runtimeIdentity }) else {
+            focusedWindowState = .stale(observation.runtimeIdentity)
+            return
+        }
+        focusedWindowState = state(for: focused)
+    }
+
+    private func state(for window: WindowSnapshot) -> FocusedWindowState {
+        if let reason = managementPolicy.exclusionReason(for: window) {
+            return .excluded(window, reason: reason)
+        }
+        guard let member = workspaceManager.member(for: window.runtimeIdentity) else {
+            return .unmanaged(window)
+        }
+        return .managed(window, memberships: member.workspaceIDs, sticky: member.visibleOnAllWorkspaces)
+    }
+
+    private func exactFocusedWindowForAction() -> WindowSnapshot? {
+        let state = focusedWindowState
+        let identity: WindowRuntimeIdentity
+        switch state {
+        case let .unmanaged(window), let .managed(window, _, _), let .excluded(window, _): identity = window.runtimeIdentity
+        default: return nil
+        }
+        if let current = focusedWindowProvider.focusedWindow(displays: displays) {
+            guard current.runtimeIdentity == identity else {
+                focusedWindowState = .stale(identity)
+                actionStatus = "The focused window changed; no action was performed."
+                return nil
+            }
+            return current.snapshot ?? windows.first(where: { $0.runtimeIdentity == identity })
+        }
+        guard let discovered = windows.first(where: { $0.runtimeIdentity == identity }) else {
+            focusedWindowState = .stale(identity)
+            actionStatus = "The focused window is stale; no action was performed."
+            return nil
+        }
+        return discovered
+    }
+
+    @discardableResult
+    func manageAndMoveFocusedWindow(to workspaceID: WorkspaceID) -> Bool {
+        manageAndAssignFocusedWindow(to: workspaceID, move: true)
+    }
+
+    @discardableResult
+    func manageAndShowFocusedWindow(on workspaceID: WorkspaceID) -> Bool {
+        manageAndAssignFocusedWindow(to: workspaceID, move: false)
+    }
+
+    @discardableResult
+    private func manageAndAssignFocusedWindow(to workspaceID: WorkspaceID, move: Bool) -> Bool {
+        guard let window = exactFocusedWindowForAction(), workspaceManager.workspaceIDs.contains(workspaceID) else { return false }
+        guard case let .success(authorized) = WindowAuthorization.authorize(window, policy: managementPolicy) else {
+            focusedWindowState = state(for: window)
+            actionStatus = "This focused window is excluded or has no safe runtime identity."
+            return false
+        }
+        let member = workspaceManager.member(for: authorized.runtimeIdentity)
+            ?? WorkspaceMember(authorizedWindow: authorized, logicalSnapshot: window)
+        if move { workspaceManager.moveToWorkspace(member, workspaceID: workspaceID) }
+        else { workspaceManager.addToWorkspace(member, workspaceID: workspaceID) }
+        persistAuthoritativeState()
+        focusedWindowState = state(for: window)
+        actionStatus = move ? "Managed and moved \(window.applicationName)." : "Managed and showed \(window.applicationName)."
+        return true
+    }
+
+    @discardableResult
+    func moveFocusedWindow(to workspaceID: WorkspaceID) -> Bool {
+        guard let window = exactFocusedWindowForAction(), isManaged(window) else { return false }
+        assignWindow(window, to: workspaceID, move: true)
+        focusedWindowState = state(for: window)
+        return true
+    }
+
+    @discardableResult
+    func showFocusedWindow(on workspaceID: WorkspaceID) -> Bool {
+        guard let window = exactFocusedWindowForAction(), isManaged(window) else { return false }
+        assignWindow(window, to: workspaceID, move: false)
+        focusedWindowState = state(for: window)
+        return true
+    }
+
+    @discardableResult
+    func setFocusedWindowSticky(_ visible: Bool) -> Bool {
+        guard let window = exactFocusedWindowForAction(), isManaged(window) else { return false }
+        guard let member = workspaceManager.member(for: window.runtimeIdentity) else { return false }
+        if !visible && member.workspaceIDs.isEmpty {
+            workspaceManager.addToWorkspace(member, workspaceID: workspaceManager.activeWorkspaceID)
+        }
+        setWindowVisibleOnAllWorkspaces(window, visible: visible)
+        focusedWindowState = state(for: window)
+        return true
     }
 
     func handleDisplayTopologyChange() {
+        guard hasCompletedInitialRefresh else {
+            refresh()
+            return
+        }
         workspaceTopologyChanged = true
         workspaceSwitchState = .degraded(message: "Display topology changed.")
         refresh()
@@ -288,13 +502,64 @@ final class WorkspaceApplicationService: ObservableObject {
             actionStatus = "That desktop no longer exists."
             return
         }
-        if experimentalWorkspaceModeEnabled {
+        let mode: VirtualSpaceActivationMode = experimentalNativeSpacesEnabled
+            ? .nativeSpacesExperimental
+            : (experimentalWorkspaceModeEnabled ? .managedWindows : .logicalOnly)
+        switch activationStrategyProvider.strategy(for: mode) {
+        case .managedWindowSwitch:
             switchWorkspace(to: id)
-        } else {
+        case .logicalOnly:
             _ = workspaceManager.activate(id)
             persistAuthoritativeState()
             actionStatus = "Activated \(workspaceName(id)) in the logical desktop model."
+        case .nativeSpacesExperimental:
+            activateNativeWorkspace(id)
         }
+    }
+
+    private func activateNativeWorkspace(_ id: WorkspaceID) {
+        guard !isNativeActivationInProgress else {
+            actionStatus = "A native Space activation is already in progress."
+            appendNativeSpaceLog("ACTIVATE ignored · operation already in progress")
+            return
+        }
+        guard let position = workspaceManager.workspaceOrder.firstIndex(of: id).map({ $0 + 1 }) else { return }
+        appendNativeSpaceLog("ACTIVATE requested · virtual=\(position) · name=\(workspaceName(id))")
+        guard case let .success(topology) = nativeSpacesProvider.readTopology() else {
+            actionStatus = "Native Spaces topology is unavailable; no logical-only activation was performed."
+            appendNativeSpaceLog("ACTIVATE failed · topology unavailable")
+            return
+        }
+        let current = topology.spaces.filter { $0.isCurrent && $0.kind == .userDesktop }
+        appendNativeSpaceLog("ACTIVATE topology · current=\(current.map { "\($0.displayIdentifier):\($0.runtimeID)" }.joined(separator: ","))")
+        let controller = nativeSpacesController
+        isNativeActivationInProgress = true
+        actionStatus = "Activating native macOS Desktop \(position)…"
+        nativeActivationTask = Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                controller.activate(virtualPosition: position, topology: topology)
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.isNativeActivationInProgress = false
+            switch result {
+            case .activated:
+                _ = self?.workspaceManager.activate(id)
+                self?.persistAuthoritativeState()
+                self?.actionStatus = "Activated native macOS Desktop \(position) for \(self?.workspaceName(id) ?? "Virtual Space")."
+                self?.appendNativeSpaceLog("ACTIVATE success · virtual=\(position)")
+            case let .unavailable(message), let .failed(message):
+                self?.actionStatus = "Native activation failed: \(message)"
+                self?.appendNativeSpaceLog("ACTIVATE failed · \(message)")
+            }
+        }
+    }
+
+    func setExperimentalNativeSpacesEnabled(_ enabled: Bool) {
+        experimentalNativeSpacesEnabled = enabled
+        actionStatus = enabled
+            ? "Experimental native activation enabled. Existing Spaces only; creation/deletion is not automatic."
+            : "Experimental native activation disabled."
+        appendNativeSpaceLog(enabled ? "MODE enabled" : "MODE disabled")
     }
 
     func activateNextWorkspace() {
@@ -319,6 +584,10 @@ final class WorkspaceApplicationService: ObservableObject {
         }
         guard !workspaceTopologyChanged else {
             actionStatus = "Switching is paused because display topology changed. Recover managed windows first."
+            return
+        }
+        guard !workspaceSwitchState.isDegraded else {
+            actionStatus = "Switching is paused after a partial operation. Recover managed windows before switching again."
             return
         }
         let sourceID = workspaceManager.activeWorkspaceID
@@ -347,7 +616,10 @@ final class WorkspaceApplicationService: ObservableObject {
         actionStatus = execution.result.isDegraded
             ? "Switched to \(workspaceName(targetID)) with recoverable partial results; inspect the report below."
             : "Switched to \(workspaceName(targetID))."
-        let pending = switchQueue.finish(degradedMessage: execution.result.isDegraded ? "The last switch completed with partial results." : nil)
+        let pending = switchQueue.finish(
+            completedTarget: targetID,
+            degradedMessage: execution.result.isDegraded ? "The last switch completed with partial results." : nil
+        )
         workspaceSwitchState = switchQueue.state
         if let pending { performSwitch(to: pending) }
     }
@@ -405,6 +677,22 @@ final class WorkspaceApplicationService: ObservableObject {
 
     func isManaged(_ window: WindowSnapshot) -> Bool {
         workspaceManager.member(for: window.runtimeIdentity) != nil
+    }
+
+    func updateManagementExclusions(applicationNames: [String], bundlePrefixes: [String]) {
+        managementPolicy.excludedApplicationNames = normalizedUnique(applicationNames)
+        managementPolicy.excludedBundleIdentifierPrefixes = normalizedUnique(bundlePrefixes)
+        WindowManagementPolicyStore().save(managementPolicy)
+        actionStatus = "Safety exclusions updated. Refresh to apply them to discovered windows."
+    }
+
+    private func normalizedUnique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.compactMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed.lowercased()).inserted else { return nil }
+            return trimmed
+        }
     }
 
     func manageWindow(_ window: WindowSnapshot) {
@@ -495,8 +783,11 @@ final class WorkspaceApplicationService: ObservableObject {
         }
         let members = workspaceManager.allMembers.filter(\.isParked)
         guard !members.isEmpty else {
+            if workspaceTopologyChanged {
+                refresh()
+            }
             actionStatus = "No managed windows require recovery."
-            return true
+            return !workspaceTopologyChanged
         }
         workspaceSwitchState = .recovering
         let results = members.map { member -> WorkspaceWindowResult in

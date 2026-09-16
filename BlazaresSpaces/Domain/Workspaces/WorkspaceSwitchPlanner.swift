@@ -29,7 +29,7 @@ struct WorkspaceSwitchPlanner: Equatable, Sendable {
         }
         let toRestore = target.members.filter {
             !$0.visibleOnAllWorkspaces
-                && (!sourceIDs.contains($0.managedWindowID) || $0.isParked)
+                && !sourceIDs.contains($0.managedWindowID)
         }
 
         return WorkspaceSwitchPlan(
