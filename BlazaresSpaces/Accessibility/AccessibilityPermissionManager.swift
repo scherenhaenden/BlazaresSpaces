@@ -12,3 +12,5 @@ struct AccessibilityPermissionManager {
     }
 }
 
+extension AccessibilityPermissionManager: AccessibilityChecking {}
+

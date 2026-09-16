@@ -135,16 +135,13 @@ struct BlazaresSpacesTests {
         #expect(policy.exclusionReason(for: window()) == nil)
     }
 
-    @Test func externalAuthorizationRequiresAXRuntimeIdentifier() {
+    @Test func externalAuthorizationUsesSessionRuntimeIdentityWhenAXIdentifierIsMissing() {
         let result = WindowAuthorization.authorize(window(identifier: nil), policy: .developmentDefaults)
-        let isExpectedFailure: Bool
-
-        if case .failure(.missingRuntimeIdentifier) = result {
-            isExpectedFailure = true
+        if case .success = result {
+            #expect(true)
         } else {
-            isExpectedFailure = false
+            #expect(false)
         }
-        #expect(isExpectedFailure)
     }
 
     @Test func externalAuthorizationRejectsExcludedWindow() {
@@ -287,5 +284,116 @@ struct BlazaresSpacesTests {
         let second = calculator.parkingFrame(slot: 1, windowSize: CGSize(width: 400, height: 300), displays: displays)!
         #expect(first.minX > 1600)
         #expect(second.minY > first.minY)
+    }
+
+    @Test func workspaceOrderSupportsReorderingAndNextPreviousWrap() {
+        var manager = WorkspaceManager()
+        let third = manager.addWorkspace(name: "University")
+        #expect(manager.workspaceOrder.count == 3)
+        #expect(manager.workspaceOrder.last == third)
+        let moved = manager.reorderWorkspaces([third, .workspace1, .workspace2])
+        #expect(moved)
+        #expect(manager.workspaceOrder.first == third)
+        #expect(manager.nextWorkspaceID(after: .workspace2) == third)
+        #expect(manager.previousWorkspaceID(before: third) == .workspace2)
+    }
+
+    @Test func deletingSharedWorkspaceRemovesOnlyThatMembership() {
+        var manager = WorkspaceManager()
+        let member = authorizedMember(window())
+        manager.moveToWorkspace(member, workspaceID: .workspace1)
+        manager.addToWorkspace(member, workspaceID: .workspace2)
+        let deleted = manager.deleteWorkspace(.workspace2, moveExclusiveMembersTo: .workspace1)
+        #expect(deleted)
+        #expect(manager.member(for: member.id) != nil)
+        #expect(manager.workspaceContaining(member.id) == [.workspace1])
+    }
+
+    @Test func activeWorkspaceDeletionRequiresExplicitReplacement() {
+        var manager = WorkspaceManager()
+        #expect(manager.deleteWorkspace(.workspace1) == false)
+        #expect(manager.deleteWorkspace(.workspace1, moveExclusiveMembersTo: .workspace2) == true)
+        #expect(manager.activeWorkspaceID == .workspace2)
+    }
+
+    @Test func emptyAndZeroManagedWorkspaceStatesAreValid() {
+        var manager = WorkspaceManager()
+        #expect(manager.allMembers.isEmpty)
+        let empty = manager.addWorkspace(name: "Personal")
+        #expect(manager.workspace(for: empty).members.isEmpty)
+        let activated = manager.activate(empty)
+        #expect(activated)
+        #expect(manager.activeWorkspaceID == empty)
+    }
+
+    @Test func stopManagingRemovesOnlyTheManagedWindow() {
+        var manager = WorkspaceManager()
+        let member = authorizedMember(window())
+        manager.moveToWorkspace(member, workspaceID: .workspace1)
+        let removed = manager.remove(member.id)
+        #expect(removed?.id == member.id)
+        #expect(manager.allMembers.isEmpty)
+    }
+
+    @Test func workspaceConfigurationPersistsNamesOrderAndActiveOnly() {
+        var manager = WorkspaceManager()
+        let third = manager.addWorkspace(name: "University")
+        let activated = manager.activate(third)
+        #expect(activated)
+        let configuration = manager.configuration
+        var restored = WorkspaceManager()
+        restored.apply(configuration: configuration)
+        #expect(restored.workspaceOrder == manager.workspaceOrder)
+        #expect(restored.workspace(for: third).name == "University")
+        #expect(restored.activeWorkspaceID == third)
+        #expect(restored.allMembers.isEmpty)
+    }
+
+    @Test func switchQueueKeepsOnlyLatestPendingTarget() {
+        var queue = WorkspaceSwitchRequestQueue()
+        #expect(queue.request(.workspace1) == .workspace1)
+        #expect(queue.request(.workspace2) == nil)
+        let third = WorkspaceID("workspace-3")
+        #expect(queue.request(third) == nil)
+        #expect(queue.finish() == third)
+        #expect(queue.state == .switching(target: third))
+        #expect(queue.finish() == nil)
+        #expect(queue.state == .idle)
+    }
+
+    @Test func shortcutConfigurationHasDeterministicDefaults() {
+        let configuration = GlobalShortcutConfiguration()
+        #expect(configuration.desktopKeyCodes.count == 9)
+        #expect(configuration.nextKeyCode == 124)
+        #expect(configuration.previousKeyCode == 123)
+        #expect(configuration.enabled)
+    }
+
+    @Test func recoveryPlannerUsesVisibleMainDisplayWhenOriginalDisplayDisappears() {
+        let snapshot = window(frame: CGRect(x: 2400, y: 100, width: 900, height: 700))
+        let displays = [display(id: 1, frame: CGRect(x: 0, y: 0, width: 1440, height: 900))]
+        let adjusted = snapshot.recoveryAdjusted(to: displays)
+        #expect(adjusted.displayID == 1)
+        #expect(adjusted.frame.intersects(displays[0].visibleFrame))
+        #expect(adjusted.frame != snapshot.frame)
+    }
+
+    @Test func emptyTargetDesktopParksOnlyNonStickySourceMembers() {
+        var manager = WorkspaceManager()
+        let sourceOnly = authorizedMember(window(identifier: "source-empty"))
+        let sticky = authorizedMember(window(identifier: "sticky-empty"))
+        manager.moveToWorkspace(sourceOnly, workspaceID: .workspace1)
+        manager.moveToWorkspace(sticky, workspaceID: .workspace1)
+        manager.setVisibleOnAllWorkspaces(sticky, visible: true)
+        let engine = WorkspaceSwitchEngine()
+        let candidates = engine.membersToPark(from: manager.workspace(for: .workspace1), to: manager.workspace(for: .workspace2))
+        #expect(candidates.map(\.id) == [sourceOnly.id])
+    }
+
+    @Test func parkingIsAcceptedOnlyWhenActualFrameIsOutsideVisibleDisplays() {
+        let displays = [display(id: 1, frame: CGRect(x: 0, y: 0, width: 1000, height: 800))]
+        let engine = WorkspaceSwitchEngine()
+        #expect(engine.isSafelyParked(CGRect(x: 1100, y: 10, width: 300, height: 200), displays: displays))
+        #expect(!engine.isSafelyParked(CGRect(x: 900, y: 10, width: 300, height: 200), displays: displays))
     }
 }

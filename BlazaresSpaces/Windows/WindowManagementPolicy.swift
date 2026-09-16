@@ -3,8 +3,8 @@ import Foundation
 /// Conservative policy used before a window can enter the explicit external
 /// test set. Discovery remains read-only regardless of this policy.
 struct WindowManagementPolicy: Equatable, Sendable {
-    let excludedBundleIdentifierPrefixes: [String]
-    let excludedApplicationNames: [String]
+    var excludedBundleIdentifierPrefixes: [String]
+    var excludedApplicationNames: [String]
 
     static let developmentDefaults = WindowManagementPolicy(
         excludedBundleIdentifierPrefixes: ["com.citrix."],
@@ -22,6 +22,26 @@ struct WindowManagementPolicy: Equatable, Sendable {
         }
 
         return nil
+    }
+}
+
+struct WindowManagementPolicyStore {
+    private let namesKey = "BlazaresSpaces.excludedApplicationNames.v1"
+    private let prefixesKey = "BlazaresSpaces.excludedBundlePrefixes.v1"
+
+    func load() -> WindowManagementPolicy {
+        let defaults = UserDefaults.standard
+        guard let names = defaults.stringArray(forKey: namesKey),
+              let prefixes = defaults.stringArray(forKey: prefixesKey) else {
+            return .developmentDefaults
+        }
+        return WindowManagementPolicy(excludedBundleIdentifierPrefixes: prefixes, excludedApplicationNames: names)
+    }
+
+    func save(_ policy: WindowManagementPolicy) {
+        let defaults = UserDefaults.standard
+        defaults.set(policy.excludedApplicationNames, forKey: namesKey)
+        defaults.set(policy.excludedBundleIdentifierPrefixes, forKey: prefixesKey)
     }
 }
 
@@ -57,7 +77,8 @@ enum WindowAuthorization {
         if let reason = policy.exclusionReason(for: window) {
             return .failure(.excluded(reason))
         }
-        guard let identifier = window.runtimeIdentity.accessibilityIdentifier, !identifier.isEmpty else {
+        guard window.runtimeIdentity.processIdentifier > 0,
+              window.runtimeIdentity.enumerationIndex >= 0 else {
             return .failure(.missingRuntimeIdentifier)
         }
         return .success(AuthorizedExternalWindow(snapshot: window))

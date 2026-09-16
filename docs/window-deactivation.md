@@ -1,6 +1,6 @@
 # Window deactivation research notes
 
-This document records candidate strategies for the logical-workspace engine. In 0.0.3, moving explicitly authorized source-only windows outside the visible union of displays is implemented as an experimental, recoverable parking path. It remains opt-in, in-memory, and subject to the failure modes below.
+This document records candidate strategies for the logical-workspace engine. In 0.1.0, moving explicitly authorized source-only windows outside the visible union of displays is implemented as an opt-in, recoverable parking path. It remains subject to the failure modes below.
 
 The future model must be window-based, not application-based. For example, Chrome Window A may belong to WORK while Chrome Window B belongs to DEV; hiding Chrome as an application would incorrectly affect both.
 

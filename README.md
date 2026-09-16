@@ -1,11 +1,11 @@
 # BlazaresSpaces
 
-KDE-style global virtual desktops for macOS.
+KDE-style global Virtual Spaces for macOS.
 
-BlazaresSpaces is an experimental, open-source macOS virtual desktop manager focused on multi-monitor context switching. One workspace spans all connected displays.
+BlazaresSpaces is an experimental, open-source macOS Virtual Space manager focused on multi-monitor context switching. One Virtual Space spans all connected displays.
 
 ```text
-Desktop 1
+Virtual Space 1
 +-------------+-------------+-------------+
 | Display 1   | Display 2   | Display 3   |
 | Work        | Work        | Work        |
@@ -13,7 +13,7 @@ Desktop 1
 
                     SWITCH
 
-Desktop 2
+Virtual Space 2
 +-------------+-------------+-------------+
 | Display 1   | Display 2   | Display 3   |
 | Development | Development | Development |
@@ -22,7 +22,20 @@ Desktop 2
 
 BlazaresSpaces does not tile windows, create or manipulate native macOS Spaces, use private Mission Control/WindowServer APIs, or require disabling SIP. It is currently a proof of concept using public AppKit, CoreGraphics, and Accessibility APIs.
 
-## Current status — 0.0.3 Experimental global workspaces
+The app-managed contexts are intentionally called Virtual Spaces. Native macOS
+Spaces remain a separate Mission Control layer; see
+[NATIVE-SPACES-FEASIBILITY.md](docs/NATIVE-SPACES-FEASIBILITY.md) for the public
+API assessment and MODE B decision.
+
+## Current status — 0.3.0 in development
+
+The 0.3.0 daily-driver work builds on the versioned persistence and conservative restoration model. The architectural rules and the exact distinction between current and pending behavior are documented in [ARCHITECTURE.md](docs/ARCHITECTURE.md) and [the 0.3.0 acceptance document](docs/0.3.0-PERSONAL-DAILY-DRIVER.md).
+
+The target 0.2.0 design keeps runtime AX identity separate from durable window identity. Workspace configuration, many-to-many window membership, sticky semantics, and logical geometry will use an explicit versioned model. Relaunch discovery and matching remain read-only: an ambiguous candidate is never guessed, and no external window moves merely because BlazaresSpaces launched or loaded saved state.
+
+The repository now contains the initial pure durable-window models, versioned JSON persistence, deterministic matching, conservative topology mapping, and switch planning for 0.2.0. They are not yet fully wired into the application lifecycle. The app UI therefore does not yet provide durable window membership, matching review, corrupted-state recovery, or crash recovery. Those behaviors become available only after integration and automated/manual validation; this README does not treat the architecture contract as shipped functionality.
+
+### 0.1.0 functional baseline
 
 The app can:
 
@@ -40,9 +53,11 @@ Window titles are hidden by default in the inspector and can be revealed explici
 
 The external test mode is opt-in per window. A discovered window is never mutable by default. The user must explicitly select one eligible window or a temporary test set. Conservative application exclusions are marked **NEVER MANAGE** by the default policy. External restore requires a usable AX runtime identifier, rechecks the exact PID/bundle/identifier, and reports the requested versus resulting frame.
 
-The 0.0.3 experiment adds a controller for logical workspaces spanning all connected displays. Workspaces are dynamic and held in memory only. A selected window can be moved to one workspace, added to several workspaces, or marked **Show on all workspaces**; that sticky semantic also applies to workspaces created later. Shared windows remain visible during a switch, while only source-only windows are temporarily parked outside the union of display frames. Logical frames are kept separately from temporary parking frames.
+The 0.0.3 experiment adds a controller for logical workspaces spanning all connected displays. Runtime window memberships are held in memory only. A selected window can be moved to one workspace, added to several workspaces, or marked **Show on all workspaces**; that sticky semantic also applies to workspaces created later. Shared windows remain visible during a switch, while only source-only windows are temporarily parked outside the union of display frames. Logical frames are kept separately from temporary parking frames.
 
-Workspace switching is deliberately opt-in and reversible: use **Enter Experimental Workspace Mode**, switch from the workspace sidebar, and use **RECOVER MANAGED WINDOWS** or **Exit Experimental Mode & Recover Windows** to restore selected windows. Partial failures, missing windows, unsupported minimized/fullscreen states, adjusted frames, and timing metrics are reported per window. New or unselected windows remain unmanaged. There are no hotkeys, persistence, automatic adoption, or native macOS Spaces integration in this iteration.
+The logical workspace controller supports adding, renaming, reordering, activating, and safely deleting Virtual Spaces. Positional order and the active Virtual Space are persisted in `workspaceOrder` and `activeWorkspaceID`; managed-window durable descriptors, memberships, and sticky state are also represented in the versioned state. Runtime AX identities and temporary parking state are not persisted. Focused-window quick actions revalidate the exact runtime identity before mutation, and `NEVER MANAGE` remains a hard exclusion.
+
+Workspace switching is deliberately opt-in and reversible: enable desktop switching, switch from the desktop manager, menu bar, or configured shortcuts, and use **RECOVER MANAGED WINDOWS** or **Exit & Recover** to restore selected windows. Partial failures, missing windows, unsupported minimized/fullscreen states, adjusted frames, topology changes, and timing metrics are reported per window. New or unselected windows remain unmanaged. There is no automatic adoption, native macOS Spaces integration, tiling, persistence of runtime identities, or crash recovery.
 
 ## Running
 
@@ -58,15 +73,15 @@ Accessibility permission is tied to the built app's signing identity and locatio
 - **0.0.1:** Window and display inspector
 - **0.0.2:** Capture/restore layouts
 - **0.0.3:** Dynamic global logical workspaces (initially tested with two)
-- **0.1.0:** Usable workspace-switching MVP
-- **0.2.0:** Persistence and robust display topology handling
+- **0.1.0:** Daily-driver global workspace MVP
+- **0.2.0:** Modular architecture, versioned persistence, and conservative session restoration
 - **0.3.0:** Application/window rules and exclusions
 - **0.4.0:** Menu bar UX and configuration
 - **0.5.0:** Transition framework
 - **0.6.0:** Optional Desktop Cube-style transition
 - **1.0.0:** Stable global desktop manager
 
-These milestones are direction, not promises. See [the vision](docs/vision.md) and [architecture notes](docs/architecture.md).
+These milestones are direction, not promises. See [the vision](docs/vision.md) and the canonical [architecture document](docs/ARCHITECTURE.md).
 
 ## Safe 0.0.2 verification
 
@@ -84,3 +99,42 @@ For an external restore experiment, select a safe disposable window with **Use a
 - **D — Control Lab:** Capture, move, resize, and restore only the BlazaresSpaces lab window.
 - **E — Multi-display restore:** Manually drag the lab to another display, capture, move it, and restore it.
 - **F — Full snapshot:** Capture Desktop Snapshot and confirm approximate window/display counts; verify nothing external changed.
+
+### 0.1.0 daily-driver verification
+
+1. Create and rename **Work**, **Development**, **University**, and **Personal**; reorder them and verify the active desktop indicator.
+2. Explicitly manage disposable windows only. Assign one window to one desktop, another to two desktops, and a third to all desktops.
+3. Switch Work → Development → University → Personal using the desktop manager, menu bar, and configured shortcuts. Confirm shared/sticky windows are not moved unnecessarily.
+4. Keep real work and excluded applications open but unmanaged; confirm they never move.
+5. Rapidly request several desktops and confirm only serialized, deterministic switching occurs.
+6. Delete an empty desktop, a shared desktop, and a uniquely-owned desktop; verify explicit replacement is required and no window closes.
+7. Stop managing a parked disposable window and confirm it is recovered and remains open.
+8. Use **RECOVER MANAGED WINDOWS**, test clean application exit, and confirm no window intentionally remains parked.
+9. If safe, disconnect/reconnect a display and revoke/re-enable Accessibility. Confirm switching pauses, state is reported, and recovery remains explicit.
+10. Test minimized/fullscreen windows conservatively; confirm they are reported as unsupported rather than unexpectedly unminimized or moved.
+
+### 0.2.0 real-Mac validation after integration
+
+Run this checklist only after the 0.2.0 restoration UI is integrated, using disposable windows and a Mac with Accessibility enabled:
+
+1. Create several desktops.
+2. Assign multiple windows.
+3. Assign two windows from the same application differently.
+4. Assign one window to multiple desktops.
+5. Make one managed window sticky.
+6. Quit BlazaresSpaces cleanly.
+7. Relaunch BlazaresSpaces.
+8. Verify workspace configuration returns.
+9. Verify launch alone moves no external window.
+10. Review the detected restorable windows.
+11. Explicitly confirm one safe restoration.
+12. Verify ambiguous same-application windows are not guessed.
+13. Launch a previously missing application later.
+14. Re-run discovery and verify its missing record is reconsidered.
+15. Test restoration with three monitors.
+16. Change the display topology, if safe.
+17. Verify the conservative geometry fallback remains visible and is reported.
+18. Verify Citrix remains untouched.
+19. Verify unmanaged windows remain untouched.
+20. Use **Recover Managed Windows** and inspect all outcomes.
+21. Quit while disposable managed windows are parked and verify clean-exit recovery.

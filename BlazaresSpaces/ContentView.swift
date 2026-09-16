@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var model = DiagnosticsViewModel()
+    @EnvironmentObject private var model: DiagnosticsViewModel
     @Environment(\.openWindow) private var openWindow
     @State private var showWindowTitles = false
     @State private var workspaceNameDrafts: [String: String] = [:]
@@ -19,6 +19,7 @@ struct ContentView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
+                    restorationSection
                     if model.externalTestModeEnabled { externalTestModeSection }
                     workspaceSection
                     displaysSection
@@ -58,7 +59,7 @@ struct ContentView: View {
                 Button("Open Settings") { model.openAccessibilitySettings() }
             }
             Button("Window Control Lab") { openWindow(id: "window-control-lab") }
-            Button("Capture Desktop Snapshot") { model.captureAllWindows() }
+            Button("Capture macOS Spaces Snapshot") { model.captureAllWindows() }
             Button("Refresh") { model.refresh() }
                 .keyboardShortcut("r", modifiers: .command)
         }
@@ -126,59 +127,120 @@ struct ContentView: View {
         .tint(.orange)
     }
 
+    private var restorationSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("PERSISTENCE & RESTORATION", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(.blue)
+                    Spacer()
+                    Text(model.persistenceStatus.displayName)
+                        .font(.caption)
+                        .foregroundStyle(model.persistenceStatus.isSafeForExternalMutation ? Color.secondary : Color.red)
+                }
+
+                if case let .corrupted(description) = model.persistenceStatus {
+                    HStack {
+                        Text("Corrupted file detected: \(description)")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        Spacer()
+                        Button("Reset Saved Configuration", role: .destructive) {
+                            model.resetPersistedConfiguration()
+                        }
+                    }
+                } else if case let .unsupported(version) = model.persistenceStatus {
+                    HStack {
+                        Text("Unsupported schema version V\(version). Existing file was preserved without mutation.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        Spacer()
+                        Button("Reset Saved Configuration", role: .destructive) {
+                            model.resetPersistedConfiguration()
+                        }
+                    }
+                }
+
+                if !model.restorationItems.isEmpty {
+                    Text("Restorable window candidates discovered on launch. Conservative policy requires explicit confirmation before external mutation.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(model.restorationItems) { item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.applicationName)
+                                    .font(.subheadline.bold())
+                                Text(item.match.label)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let candidate = item.candidate {
+                                    Text("PID \(candidate.runtimeIdentity.processIdentifier) · Frame: \(candidate.frame.diagnosticDescription)")
+                                        .font(.caption2)
+                                        .fontDesign(.monospaced)
+                                }
+                            }
+                            Spacer()
+                            if item.canConfirm {
+                                Button("Restore Window") {
+                                    model.confirmRestoration(item)
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                        }
+                        .padding(6)
+                        .background(.quaternary.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+        }
+        .tint(.blue)
+    }
+
     private var workspaceSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
-                Label("EXPERIMENTAL GLOBAL WORKSPACES", systemImage: "square.3.layers.3d")
+                Label("VIRTUAL SPACE MANAGER", systemImage: "square.3.layers.3d")
                     .font(.headline)
                     .foregroundStyle(.orange)
-                Text("Workspaces are logical and span all connected displays. Only windows explicitly selected in External Window Test Mode can be assigned or controlled; discovery remains read-only.")
+                Text("Virtual Spaces span all connected displays. Only explicitly managed windows can be assigned or controlled; discovery remains read-only.")
                     .foregroundStyle(.secondary)
                 HStack {
                     if !model.experimentalWorkspaceModeEnabled {
-                        Button("Enter Experimental Workspace Mode") { model.enterExperimentalWorkspaceMode() }
+                        Button("Enable Virtual Space Switching") { model.enterExperimentalWorkspaceMode() }
+                            .accessibilityIdentifier("enableDesktopSwitchingButton")
                     } else {
                         Button("RECOVER MANAGED WINDOWS") { model.recoverManagedWindows() }
-                        Button("Exit Experimental Mode & Recover Windows") { model.exitExperimentalWorkspaceMode() }
+                        Button("Exit & Recover") { model.exitExperimentalWorkspaceMode() }
                     }
-                    Button("Add Workspace") { model.addWorkspace() }
+                    Button("Add Virtual Space") { model.addWorkspace() }
+                        .accessibilityIdentifier("addWorkspaceButton")
+                    Button("Previous") { model.activatePreviousWorkspace() }
+                    Button("Next") { model.activateNextWorkspace() }
+                }
+                Toggle("Global shortcuts (⌃⌥1…9, ⌃⌥←/→)", isOn: Binding(
+                    get: { model.globalShortcutsEnabled },
+                    set: { model.setGlobalShortcutsEnabled($0) }
+                ))
+                .disabled(!model.accessibilityGranted)
+                Text("State: " + model.workspaceSwitchState.displayName + " · Active: " + model.workspaceName(model.workspaceManager.activeWorkspaceID))
+                    .font(.caption)
+                    .foregroundStyle(model.workspaceSwitchState.isDegraded ? .red : .secondary)
+                if model.workspaceTopologyChanged {
+                    Label("Display topology changed; switching is paused until recovery.", systemImage: "display.trianglebadge.exclamationmark")
+                        .foregroundStyle(.orange)
                 }
 
                 ForEach(model.workspaceIDs) { id in
-                    let workspace = model.workspaceManager.workspace(for: id)
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack {
-                            TextField("Workspace name", text: Binding(
-                                get: { workspaceNameDrafts[id.rawValue] ?? workspace.name },
-                                set: { workspaceNameDrafts[id.rawValue] = $0 }
-                            ))
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit { model.renameWorkspace(id, name: workspaceNameDrafts[id.rawValue] ?? workspace.name) }
-                            if model.workspaceManager.activeWorkspaceID == id {
-                                Label("Active", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                            } else {
-                                Button("Activate") { model.activateWorkspace(id) }
-                            }
-                            if model.workspaceIDs.count > 1 {
-                                Button("Delete", role: .destructive) { model.deleteWorkspace(id) }
-                            }
-                        }
-                        Text("Members: (workspace.members.count)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        ForEach(workspace.members) { member in
-                            Text("• (member.authorizedWindow.applicationName) · PID (member.authorizedWindow.processIdentifier)\(member.visibleOnAllWorkspaces ? " · all workspaces" : "")")
-                                .font(.caption)
-                                .fontDesign(.monospaced)
-                        }
-                    }
-                    .padding(6)
-                    .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
+                    workspaceRow(id)
                 }
 
                 if let result = model.workspaceSwitchResult {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Last workspace operation: " + (result.sourceWorkspaceID?.rawValue ?? "recovery/entry") + " → " + result.targetWorkspaceID.rawValue)
+                        Text("Last Virtual Space operation: " + (result.sourceWorkspaceID?.rawValue ?? "recovery/entry") + " → " + result.targetWorkspaceID.rawValue)
                             .font(.callout.bold())
                         Text("Processed \(result.metrics.windowsProcessed) · captured \(result.capturedCount) · parked \(result.parkedCount) · restored \(result.restoredCount) · adjusted \(result.adjustedCount) · missing \(result.missingCount) · failed \(result.failedCount)")
                             .font(.caption)
@@ -193,11 +255,57 @@ struct ContentView: View {
                     }
                     .padding(6)
                 }
+                if let status = model.actionStatus, !model.externalTestModeEnabled {
+                    Text(status)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)
         }
         .tint(.orange)
+        .accessibilityIdentifier("desktopManagerSection")
+    }
+
+    private func workspaceRow(_ id: WorkspaceID) -> some View {
+        let workspace = model.workspaceManager.workspace(for: id)
+        let otherIDs = model.workspaceIDs.filter { $0 != id }
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                TextField("Virtual Space name", text: workspaceNameBinding(id, currentName: workspace.name))
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { model.renameWorkspace(id, name: workspaceNameDrafts[id.rawValue] ?? workspace.name) }
+                if model.workspaceManager.activeWorkspaceID == id {
+                    Label("Active", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                } else {
+                    Button("Activate") { model.activateWorkspace(id) }
+                }
+                Button("↑") { model.reorderWorkspace(id, by: -1) }
+                    .disabled(model.workspaceIDs.first == id)
+                Button("↓") { model.reorderWorkspace(id, by: 1) }
+                    .disabled(model.workspaceIDs.last == id)
+                if !otherIDs.isEmpty {
+                    Menu("Delete") {
+                        ForEach(otherIDs) { destination in
+                            Button("Delete; move exclusive to \(model.workspaceName(destination))", role: .destructive) {
+                                model.deleteWorkspace(id, destination: destination)
+                            }
+                        }
+                    }
+                }
+            }
+            Text("Managed members: \(workspace.members.count)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(workspace.members) { member in
+                Text("• " + member.authorizedWindow.applicationName + " · PID " + String(member.authorizedWindow.processIdentifier) + (member.visibleOnAllWorkspaces ? " · all Virtual Spaces" : ""))
+                    .font(.caption)
+                    .fontDesign(.monospaced)
+            }
+        }
+        .padding(6)
+        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
     }
 
     private var windowsSection: some View {
@@ -230,6 +338,12 @@ struct ContentView: View {
                                 .foregroundStyle(.red)
                         } else {
                             HStack {
+                                if model.isManaged(window) {
+                                    Label("Managed", systemImage: "checkmark.shield.fill").foregroundStyle(.green)
+                                    Button("Stop Managing Window") { model.stopManagingWindow(window) }
+                                } else {
+                                    Button("Manage This Window") { model.manageWindow(window) }
+                                }
                                 Button(model.selectedTestWindowID == window.runtimeIdentity ? "Selected Test Window" : "Use as Capture/Restore Test Window") {
                                     model.selectTestWindow(window)
                                 }
@@ -241,7 +355,7 @@ struct ContentView: View {
                             }
                             if model.isExplicitlyAuthorizedForWorkspace(window) {
                                 HStack {
-                                    Menu("Workspace membership") {
+                                    Menu("Virtual Space membership") {
                                         ForEach(model.workspaceIDs) { workspaceID in
                                             Button("Move to \(model.workspaceName(workspaceID))") {
                                                 model.assignWindow(window, to: workspaceID, move: true)
@@ -250,10 +364,10 @@ struct ContentView: View {
                                                 model.assignWindow(window, to: workspaceID, move: false)
                                             }
                                         }
-                                        Button("Show on all workspaces") {
+                                        Button("Show on all Virtual Spaces") {
                                             model.setWindowVisibleOnAllWorkspaces(window, visible: true)
                                         }
-                                        Button("Stop showing on all workspaces") {
+                                        Button("Stop showing on all Virtual Spaces") {
                                             model.setWindowVisibleOnAllWorkspaces(window, visible: false)
                                         }
                                     }
@@ -274,8 +388,15 @@ struct ContentView: View {
         }
     }
 
+    private func workspaceNameBinding(_ id: WorkspaceID, currentName: String) -> Binding<String> {
+        Binding(
+            get: { workspaceNameDrafts[id.rawValue] ?? currentName },
+            set: { workspaceNameDrafts[id.rawValue] = $0 }
+        )
+    }
+
     private func snapshotSection(_ snapshot: WorkspaceSnapshot) -> some View {
-        GroupBox("Last read-only desktop snapshot") {
+        GroupBox("Last read-only macOS Spaces snapshot") {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Captured windows: \(snapshot.windows.count)")
                 Text("Displays represented: \(snapshot.representedDisplayIDs.count)")
@@ -343,8 +464,4 @@ private extension Optional where Wrapped == Bool {
     var diagnosticDescription: String {
         map { $0 ? "Yes" : "No" } ?? "Unavailable"
     }
-}
-
-#Preview {
-    ContentView()
 }

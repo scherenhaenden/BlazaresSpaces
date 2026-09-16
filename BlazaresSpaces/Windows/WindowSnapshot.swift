@@ -3,10 +3,28 @@ import Foundation
 
 /// Identity usable only while inspecting the current AX enumeration. macOS does not
 /// expose a universal public window identifier that survives application restarts.
-struct WindowRuntimeIdentity: Hashable, Sendable {
+nonisolated struct WindowRuntimeIdentity: Hashable, Sendable {
     let processIdentifier: pid_t
     let accessibilityIdentifier: String?
     let enumerationIndex: Int
+
+    init(processIdentifier: pid_t, accessibilityIdentifier: String?, enumerationIndex: Int) {
+        self.processIdentifier = processIdentifier
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.enumerationIndex = enumerationIndex
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(processIdentifier)
+        hasher.combine(accessibilityIdentifier)
+        hasher.combine(enumerationIndex)
+    }
+
+    nonisolated static func == (lhs: WindowRuntimeIdentity, rhs: WindowRuntimeIdentity) -> Bool {
+        lhs.processIdentifier == rhs.processIdentifier
+            && lhs.accessibilityIdentifier == rhs.accessibilityIdentifier
+            && lhs.enumerationIndex == rhs.enumerationIndex
+    }
 }
 
 struct WindowSnapshot: Identifiable, Equatable, Sendable {
@@ -22,16 +40,6 @@ struct WindowSnapshot: Identifiable, Equatable, Sendable {
     let isMinimized: Bool?
     let isFullscreen: Bool?
     let displayID: CGDirectDisplayID?
-}
-
-/// A future persistence boundary. It intentionally does not claim that a PID or
-/// runtime AX element remains valid after an application restart.
-struct PersistedWindowDescriptor: Equatable, Sendable {
-    let applicationName: String
-    let bundleIdentifier: String?
-    let title: String?
-    let displayID: CGDirectDisplayID?
-    let frame: CGRect
 }
 
 struct WindowDiscoveryIssue: Identifiable, Equatable, Sendable {

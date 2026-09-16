@@ -99,6 +99,29 @@ struct AXExternalWindowController {
         )
     }
 
+    /// Recovery-only restore that avoids blindly writing a frame on a display
+    /// which is no longer connected. Normal workspace switching remains strict.
+    func recover(
+        _ target: AuthorizedExternalWindow,
+        requested snapshot: WindowSnapshot,
+        displays: [DisplaySnapshot]
+    ) -> WindowRestoreResult {
+        let safeSnapshot = snapshot.recoveryAdjusted(to: displays)
+        var result = restore(target, requested: safeSnapshot)
+        if safeSnapshot.frame != snapshot.frame {
+            result = WindowRestoreResult(
+                id: result.id,
+                applicationName: result.applicationName,
+                processIdentifier: result.processIdentifier,
+                requestedFrame: snapshot.frame,
+                actualFrame: result.actualFrame,
+                status: result.status,
+                message: "Original display topology is unavailable; recovery used the main visible display. \(result.message)"
+            )
+        }
+        return result
+    }
+
     func park(
         _ target: AuthorizedExternalWindow,
         current snapshot: WindowSnapshot,
@@ -173,10 +196,14 @@ struct AXExternalWindowController {
         guard let expectedIdentifier = identity.accessibilityIdentifier, !expectedIdentifier.isEmpty else {
             return .failure(.unsupported("The selected window has no usable AX runtime identifier."))
         }
-        guard let match = elements.first(where: { element in
+        let matches = elements.filter { element in
             stringAttribute(kAXRoleAttribute, of: element) == kAXWindowRole
                 && stringAttribute(kAXIdentifierAttribute, of: element) == expectedIdentifier
-        }) else { return .failure(.windowMissing) }
+        }
+        guard !matches.isEmpty else { return .failure(.windowMissing) }
+        guard matches.count == 1, let match = matches.first else {
+            return .failure(.unsupported("The AX runtime identifier is not unique; refusing to choose a window."))
+        }
         return .success(match)
     }
 
@@ -249,8 +276,43 @@ struct AXExternalWindowController {
     }
 }
 
+extension WindowSnapshot {
+    func recoveryAdjusted(to displays: [DisplaySnapshot]) -> WindowSnapshot {
+        guard let display = displays.first(where: { $0.frame.intersects(frame) })
+                ?? displays.first(where: { $0.isMain })
+                ?? displays.first else { return self }
+        guard display.frame.intersects(frame) else {
+            let visible = display.visibleFrame
+            let width = min(frame.width, visible.width)
+            let height = min(frame.height, visible.height)
+            let adjusted = CGRect(
+                x: visible.minX + max(0, (visible.width - width) / 2),
+                y: visible.minY + max(0, (visible.height - height) / 2),
+                width: width,
+                height: height
+            )
+            return WindowSnapshot(
+                runtimeIdentity: runtimeIdentity,
+                applicationName: applicationName,
+                bundleIdentifier: bundleIdentifier,
+                title: title,
+                role: role,
+                subrole: subrole,
+                frame: adjusted,
+                isMinimized: isMinimized,
+                isFullscreen: isFullscreen,
+                displayID: display.id
+            )
+        }
+        return self
+    }
+}
+
 private extension WindowRestoreResult {
     init(_ base: WindowRestoreResult, actualFrame: CGRect? = nil, status: WindowRestoreStatus, message: String) {
         self.init(id: base.id, applicationName: base.applicationName, processIdentifier: base.processIdentifier, requestedFrame: base.requestedFrame, actualFrame: actualFrame, status: status, message: message)
     }
 }
+
+extension AXExternalWindowController: WindowControlling {}
+

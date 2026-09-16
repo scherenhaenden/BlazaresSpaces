@@ -10,31 +10,60 @@ import XCTest
 final class BlazaresSpacesUITests: XCTestCase {
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
     }
 
     @MainActor
-    func testExample() throws {
+    func testDailyDriverLaunchesWithoutExternalMutationActions() throws {
         let app = XCUIApplication()
         app.launch()
+
+        XCTAssertTrue(app.staticTexts["dailyDriverTitle"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["accessibilityStatus"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.descendants(matching: .any)["displaysSection"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["activeDesktopStatus"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["dailyDriverDesktopManager"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["dailyDriverWindowsSection"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Virtual Spaces"].exists)
+        let activeVirtualSpace = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Active Virtual Space:")
+        ).firstMatch
+        XCTAssertTrue(activeVirtualSpace.exists)
+    }
+
+    @MainActor
+    func testDesktopManagerShowsSafeNonDestructiveControls() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.descendants(matching: .any)["dailyDriverDesktopManager"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["addWorkspaceButton"].exists)
+
+        // Enabling switching may be disabled when Accessibility is unavailable,
+        // but the explicit opt-in control must remain visible.
+        XCTAssertTrue(app.buttons["enableDesktopSwitchingButton"].exists)
+        XCTAssertTrue(app.buttons["Refresh"].exists)
+        XCTAssertTrue(app.buttons["Enable Virtual Space Switching"].exists)
+    }
+
+    @MainActor
+    func testAdvancedDiagnosticsAreSecondary() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let disclosure = app.disclosureTriangles["Advanced Diagnostics"]
+        if disclosure.exists {
+            disclosure.click()
+        } else {
+            app.staticTexts["Advanced Diagnostics"].click()
+        }
+
+        XCTAssertTrue(app.buttons["Open Inspector"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.buttons["Window Control Lab"].exists)
-        XCTAssertTrue(app.buttons["Capture Desktop Snapshot"].exists)
+        XCTAssertTrue(app.buttons["Capture Read-Only Desktop Snapshot"].exists)
     }
 
     @MainActor
     func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
         }

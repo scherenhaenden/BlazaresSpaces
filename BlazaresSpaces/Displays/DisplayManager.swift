@@ -40,3 +40,6 @@ struct DisplayManager {
     }
 }
 
+extension DisplayManager: DisplayTopologyProviding {}
+
+
