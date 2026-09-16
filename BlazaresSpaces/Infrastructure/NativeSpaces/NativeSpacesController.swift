@@ -18,9 +18,12 @@ struct NativeSpacesController: NativeSpacesControlling {
     }
 
     nonisolated func capabilities() -> NativeSpaceCapabilities {
+        // Discovery is intentionally reported by the provider. Mutation via
+        // synthetic Dock gestures is supported only as an explicit experimental
+        // focus path; create/destroy/move remain unavailable.
         switch provider.readTopology() {
         case .success:
-            return NativeSpaceCapabilities(discovery: true, create: false, destroy: false, focus: true, moveWindow: false, reasons: ["Focus uses an experimental Dock gesture; topology is revalidated before and after use"])
+            return NativeSpaceCapabilities(discovery: true, create: false, destroy: false, focus: true, moveWindow: false, reasons: ["Focus uses an experimental Dock gesture; topology must be revalidated immediately before use"])
         case let .failure(error):
             return NativeSpaceCapabilities(discovery: false, create: false, destroy: false, focus: false, moveWindow: false, reasons: [String(describing: error)])
         }
@@ -41,15 +44,6 @@ struct NativeSpacesController: NativeSpacesControlling {
         let bindings = NativeSpaceTopologyMapper().bindings(for: topology)
         guard !topology.displays.isEmpty else { return .failed("No native displays were discovered") }
 
-        // Refuse to act on a stale caller snapshot. Native IDs and display topology
-        // may change independently of the app, so mutation starts from a fresh read.
-        guard let preflight = provider.readTopology().value else {
-            return .failed("GLOBAL FAILURE: native topology could not be revalidated before activation")
-        }
-        guard topology.sameRuntimeTopology(as: preflight) else {
-            return .failed("GLOBAL FAILURE: native topology changed before activation; refresh and retry")
-        }
-
         let originalCursor = NSEvent.mouseLocation
         defer {
             CGWarpMouseCursorPosition(originalCursor)
@@ -57,22 +51,29 @@ struct NativeSpacesController: NativeSpacesControlling {
         }
 
         let semaphore = DispatchSemaphore(value: 0)
-        let token = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: nil) { _ in semaphore.signal() }
+        let token = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in semaphore.signal() }
         defer { NSWorkspace.shared.notificationCenter.removeObserver(token) }
 
         var failures: [String] = []
-        for display in preflight.displays {
-            let displaySpaces = preflight.spaces.filter { $0.displayIdentifier == display.displayIdentifier && $0.kind == .userDesktop }
+        for display in topology.displays {
+            let displaySpaces = topology.spaces.filter { $0.displayIdentifier == display.displayIdentifier && $0.kind == .userDesktop }
             guard let currentSpace = displaySpaces.first(where: { $0.isCurrent }),
                   let currentPosition = bindings.first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == currentSpace.runtimeID } })?.virtualSpacePosition else {
-                failures.append("display \(display.displayIdentifier): current Virtual Space unresolved")
+                failures.append("display \(display.displayIdentifier): current desktop unresolved")
                 continue
             }
             guard bindings.first(where: { $0.virtualSpacePosition == virtualPosition })?.spacesByDisplay[display.displayIdentifier] != nil else {
-                failures.append("display \(display.displayIdentifier): target Virtual Space \(virtualPosition) unavailable")
+                failures.append("display \(display.displayIdentifier): target Desktop \(virtualPosition) unavailable")
                 continue
             }
-            if currentPosition == virtualPosition { continue }
+            if currentPosition == virtualPosition {
+                logStore.append("DISPLAY SUCCESS id=(display.displayIdentifier) current=(currentPosition) target=(virtualPosition) delta=0")
+                continue
+            }
             guard let center = displayCenter(for: display.displayIdentifier) else {
                 failures.append("display \(display.displayIdentifier): screen center unavailable")
                 continue
@@ -86,40 +87,48 @@ struct NativeSpacesController: NativeSpacesControlling {
             for offset in 1...abs(delta) {
                 let nextPosition = currentPosition + offset * step
                 guard let nextSpace = bindings.first(where: { $0.virtualSpacePosition == nextPosition })?.spacesByDisplay[display.displayIdentifier] else {
-                    failures.append("display \(display.displayIdentifier): intermediate Virtual Space \(nextPosition) unavailable")
+                failures.append("display " + display.displayIdentifier + ": intermediate Desktop " + String(nextPosition) + " unavailable")
                     break
                 }
+                let progress = (direction == .right ? 1.0 : -1.0) * Double(Float.leastNonzeroMagnitude)
+                let velocity = direction == .right ? 2000 : -2000
+                logStore.append("GLOBAL SWIPE display=" + display.displayIdentifier + " frame=" + String(describing: center) + " direction=" + String(describing: direction) + " phase=1,2,4 current=" + String(currentPosition) + " next=" + String(nextPosition) + " final=" + String(virtualPosition) + " progress=" + String(progress) + " velocity=" + String(velocity) + " runtime=" + String(nextSpace.runtimeID))
                 guard gestureActivator.performSwitchGesture(direction: direction, velocity: 2_000) else {
-                    failures.append("display \(display.displayIdentifier): could not post Dock swipe")
+                    failures.append("display " + display.displayIdentifier + ": could not post Dock swipe")
                     break
                 }
                 guard waitForTarget(nextSpace.runtimeID, semaphore: semaphore) else {
-                    failures.append("display \(display.displayIdentifier): Virtual Space \(nextPosition) was not verified")
+                    failures.append("display " + display.displayIdentifier + ": Desktop " + String(nextPosition) + " was not verified")
                     break
                 }
+            }
+            if failures.last?.hasPrefix("display " + display.displayIdentifier + ":") != true {
+                logStore.append("DISPLAY SUCCESS id=" + display.displayIdentifier + " current=" + String(currentPosition) + " target=" + String(virtualPosition))
             }
         }
 
         guard failures.isEmpty else {
             let message = "PARTIAL FAILURE: " + failures.joined(separator: "; ")
-            logStore.append(message)
+            logStore.append("GLOBAL PARTIAL FAILURE target=" + String(virtualPosition) + " details=" + message)
             return .failed(message)
         }
 
         guard let refreshed = provider.readTopology().value else {
             return .failed("GLOBAL FAILURE: final native topology could not be read")
         }
-        let refreshedBindings = NativeSpaceTopologyMapper().bindings(for: refreshed)
         let unverified = refreshed.displays.compactMap { display -> String? in
             let spaces = refreshed.spaces.filter { $0.displayIdentifier == display.displayIdentifier && $0.kind == .userDesktop }
             guard let current = spaces.first(where: { $0.isCurrent }),
-                  let position = refreshedBindings.first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == current.runtimeID } })?.virtualSpacePosition,
+                  let position = bindings.first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == current.runtimeID } })?.virtualSpacePosition,
                   position == virtualPosition else { return display.displayIdentifier }
             return nil
         }
         guard unverified.isEmpty else {
-            return .failed("PARTIAL FAILURE: final positions not verified on " + unverified.joined(separator: ", "))
+            let message = "PARTIAL FAILURE: final positions not verified on " + unverified.joined(separator: ", ")
+            logStore.append("GLOBAL PARTIAL FAILURE target=" + String(virtualPosition) + " details=" + message)
+            return .failed(message)
         }
+        logStore.append("GLOBAL SUCCESS target=" + String(virtualPosition) + " displays=" + String(refreshed.displays.count))
         return .activated
     }
 
@@ -139,17 +148,6 @@ struct NativeSpacesController: NativeSpacesControlling {
             guard let uuid = CGDisplayCreateUUIDFromDisplayID(CGDirectDisplayID(number.uint32Value))?.takeRetainedValue() else { return false }
             return (CFUUIDCreateString(nil, uuid) as String) == identifier || (identifier == "Main" && screen == NSScreen.main)
         }).map { CGPoint(x: $0.frame.midX, y: $0.frame.midY) }
-    }
-}
-
-private extension NativeSpaceTopology {
-    nonisolated func sameRuntimeTopology(as other: NativeSpaceTopology) -> Bool {
-        let lhsDisplays = Set(displays.map(\.displayIdentifier))
-        let rhsDisplays = Set(other.displays.map(\.displayIdentifier))
-        guard lhsDisplays == rhsDisplays else { return false }
-        let lhsSpaces = Set(spaces.map { "\($0.displayIdentifier):\($0.runtimeID):\($0.kind)" })
-        let rhsSpaces = Set(other.spaces.map { "\($0.displayIdentifier):\($0.runtimeID):\($0.kind)" })
-        return lhsSpaces == rhsSpaces
     }
 }
 
