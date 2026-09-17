@@ -95,7 +95,7 @@ Accessibility permission is tied to the built app's signing identity and locatio
 - **0.4.0:** Menu bar UX and configuration
 - **0.5.0:** Transition framework
 - **0.6.0:** Optional Desktop Cube-style transition
-- **1.0.0:** Stable global desktop manager
+- **1.0.0:** Stable global Virtual Space manager
 
 These milestones are direction, not promises. See [the vision](docs/vision.md) and the canonical [architecture document](docs/ARCHITECTURE.md).
 
@@ -120,7 +120,7 @@ For an external restore experiment, select a safe disposable window with **Use a
 
 1. Create and rename **Work**, **Development**, **University**, and **Personal**; reorder them and verify the active desktop indicator.
 2. Explicitly manage disposable windows only. Assign one window to one desktop, another to two desktops, and a third to all desktops.
-3. Switch Work → Development → University → Personal using the desktop manager, menu bar, and configured shortcuts. Confirm shared/sticky windows are not moved unnecessarily.
+3. Switch Work → Development → University → Personal using the Virtual Space manager, menu bar, and configured shortcuts. Confirm shared/sticky windows are not moved unnecessarily.
 4. Keep real work and excluded applications open but unmanaged; confirm they never move.
 5. Rapidly request several desktops and confirm only serialized, deterministic switching occurs.
 6. Delete an empty desktop, a shared desktop, and a uniquely-owned desktop; verify explicit replacement is required and no window closes.
