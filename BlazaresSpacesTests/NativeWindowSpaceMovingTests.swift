@@ -52,6 +52,25 @@ private final class RecordingBackend: NativeWindowSpaceMutationBackend, @uncheck
         guard case .failure(.unsafe) = never, case .failure(.unsafe) = citrix else { Issue.record("Excluded windows were not rejected") ; return }
     }
 
+    @Test func moveRejectsSpecialNativeSpaceKinds() {
+        let backend = RecordingBackend()
+        let mover = NativeWindowSpaceMover(resolver: FixedResolver(result: .success(42)), backend: backend)
+        for kind in [NativeSpaceKind.fullScreen, .tiled, .unknown(rawValue: 99)] {
+            let special = NativeSpaceDescriptor(runtimeID: 20, uuid: "special", displayIdentifier: "A", position: 1, kind: kind, isCurrent: false)
+            let topology = NativeSpaceTopology(
+                displays: [.init(displayIdentifier: "A", currentSpaceRuntimeID: 10)],
+                spaces: [special],
+                separateSpaces: true
+            )
+            let result = mover.move(identity, to: special, topology: topology)
+            guard case .failure(.unsafe) = result else {
+                Issue.record("Special Native Space kind was accepted as a window-move target: \(kind)")
+                continue
+            }
+        }
+        #expect(backend.moved == nil)
+    }
+
     @Test func moveRejectsUnresolvedIdentity() {
         let mover = NativeWindowSpaceMover(resolver: FixedResolver(result: .failure(.staleIdentity("ambiguous"))), backend: RecordingBackend())
         let result = mover.move(identity, to: topology.spaces[0], topology: topology)

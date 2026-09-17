@@ -128,7 +128,7 @@ struct NativeWindowSpaceMover: Sendable {
         guard authorization.isManaged else { return .failure(.unsafe("Unmanaged windows cannot be moved")) }
         guard !authorization.isNeverManage else { return .failure(.unsafe("NEVER MANAGE windows cannot be moved")) }
         guard !authorization.isCitrixExcluded else { return .failure(.unsafe("Citrix windows are excluded by policy")) }
-        guard space.kind == .userDesktop else { return .failure(.unsafe("Only ordinary user Native Spaces may receive windows")) }
+        guard space.isOrdinaryUserDesktop else { return .failure(.unsafe("Only ordinary user Native Spaces may receive windows")) }
         guard topology.spaces.contains(where: { NativeSpaceIdentity(space).matches($0) && $0.displayIdentifier == space.displayIdentifier }) else { return .failure(.staleIdentity("Target Native Space is not in the supplied topology")) }
         guard backend.isAvailable else { return .failure(.unavailable("SkyLight window-space mutation bridge unavailable")) }
         let resolved = resolver.resolve(identity)

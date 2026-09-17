@@ -81,15 +81,14 @@ struct SkyLightNativeSpaceLifecycle: NativeSpaceCreationProviding, NativeSpaceDe
     }
 
     nonisolated func destroyNativeSpace(_ space: NativeSpaceDescriptor, confirmedOwnedByBlazaresSpaces: Bool) -> Result<Void, NativeSpaceOperationError> {
-        guard confirmedOwnedByBlazaresSpaces else { return .failure(.unsafe("Refused to destroy an unowned native Space")) }
-        guard let before = readValidTopology(),
-              let observed = before.spaces.first(where: { NativeSpaceIdentity(space).matches($0) }) else {
-            return .failure(.staleIdentity("Owned Space is absent or its identity is stale"))
+        guard let before = readValidTopology() else {
+            return .failure(.unavailable("Could not read a valid topology before native Space destruction"))
         }
-        guard observed.kind == .userDesktop else { return .failure(.unsafe("Only ordinary user Spaces may be destroyed")) }
-        guard !observed.isCurrent else { return .failure(.unsafe("Refused to destroy the currently focused Space")) }
-        let ordinary = before.spaces.filter { $0.displayIdentifier == observed.displayIdentifier && $0.kind == .userDesktop }
-        guard ordinary.count > 1 else { return .failure(.unsafe("Refused to destroy the last ordinary Space on a display")) }
+        let safety = NativeSpaceDestructionSafety().validate(space: space, in: before, confirmedOwned: confirmedOwnedByBlazaresSpaces)
+        guard case let .success(observed) = safety else {
+            if case let .failure(error) = safety { return .failure(error) }
+            return .failure(.failed("Native Space destruction safety validation failed"))
+        }
         guard let handle = dlopen(nativeSpaceSkyLightPath, RTLD_LAZY) else { return .failure(.unavailable("SkyLight framework is unavailable")) }
         defer { dlclose(handle) }
         guard let mainSymbol = dlsym(handle, "SLSMainConnectionID"),
