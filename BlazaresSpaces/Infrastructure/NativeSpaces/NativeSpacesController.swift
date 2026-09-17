@@ -26,11 +26,9 @@ struct NativeSpacesController: NativeSpacesControlling {
         // each operation still requires post-mutation topology verification.
         switch provider.readTopology() {
         case .success:
-            guard gestureActivator.canPostEvents else {
-                return NativeSpaceCapabilities(discovery: true, create: false, destroy: false, focus: false, moveWindow: false, reasons: ["Native topology is readable, but CGEvent creation is unavailable"])
-            }
             let canMove = windowMover.backend.isAvailable
-            return NativeSpaceCapabilities(discovery: true, create: lifecycle.symbolsAvailable, destroy: lifecycle.symbolsAvailable, focus: true, moveWindow: canMove, reasons: ["Focus uses an experimental Dock gesture; topology is revalidated immediately before and after use", lifecycle.symbolsAvailable ? "CGSSpaceCreate/CGSSpaceDestroy resolved dynamically; topology verification gates each mutation" : "CGSSpaceCreate/CGSSpaceDestroy unavailable", canMove ? "Window move bridge resolved dynamically and verifies membership" : "Native window move bridge unavailable"])
+            let canFocus = gestureActivator.canPostEvents
+            return NativeSpaceCapabilities(discovery: true, create: lifecycle.symbolsAvailable, destroy: lifecycle.symbolsAvailable, focus: canFocus, moveWindow: canMove, reasons: [canFocus ? "Focus uses an experimental Dock gesture; topology is revalidated immediately before and after use" : "Focus unavailable because CGEvent creation is unavailable", lifecycle.symbolsAvailable ? "CGSSpaceCreate/CGSSpaceDestroy resolved dynamically; topology verification gates each mutation" : "CGSSpaceCreate/CGSSpaceDestroy unavailable", canMove ? "Window move bridge resolved dynamically and verifies membership" : "Native window move bridge unavailable"])
         case let .failure(error):
             return NativeSpaceCapabilities(discovery: false, create: false, destroy: false, focus: false, moveWindow: false, reasons: [String(describing: error)])
         }
@@ -99,7 +97,7 @@ struct NativeSpacesController: NativeSpacesControlling {
                 continue
             }
             if currentPosition == virtualPosition {
-                logStore.append("DISPLAY SUCCESS id=(display.displayIdentifier) current=(currentPosition) target=(virtualPosition) delta=0")
+                logStore.append("DISPLAY SUCCESS id=\(display.displayIdentifier) current=\(currentPosition) target=\(virtualPosition) delta=0")
                 continue
             }
             guard let center = displayCenter(for: display.displayIdentifier) else {
