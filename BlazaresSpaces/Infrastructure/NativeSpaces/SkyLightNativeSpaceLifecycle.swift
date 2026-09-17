@@ -12,6 +12,8 @@ struct SkyLightNativeSpaceLifecycle: NativeSpaceCreationProviding, NativeSpaceDe
     private typealias MainConnection = @convention(c) () -> Int32
     private typealias CreateSpace = @convention(c) (Int32, UnsafeMutableRawPointer?, CFDictionary?) -> UInt64
     private typealias DestroySpace = @convention(c) (Int32, UInt64) -> Void
+    private typealias ShowSpaces = @convention(c) (Int32, CFArray) -> Void
+    private typealias HideSpaces = @convention(c) (Int32, CFArray) -> Void
 
     let timeout: TimeInterval
     let pollInterval: TimeInterval
@@ -38,21 +40,27 @@ struct SkyLightNativeSpaceLifecycle: NativeSpaceCreationProviding, NativeSpaceDe
         }
         defer { dlclose(handle) }
         guard let mainSymbol = dlsym(handle, "SLSMainConnectionID"),
-              let createSymbol = dlsym(handle, "CGSSpaceCreate") else {
-            return .failure(.unavailable("CGSSpaceCreate is unavailable on this macOS release"))
+              let createSymbol = dlsym(handle, "CGSSpaceCreate"),
+              let showSymbol = dlsym(handle, "CGSShowSpaces") else {
+            return .failure(.unavailable("CGSSpaceCreate/CGSShowSpaces are unavailable on this macOS release"))
         }
         let connection = unsafeBitCast(mainSymbol, to: MainConnection.self)()
         let create = unsafeBitCast(createSymbol, to: CreateSpace.self)
 
-        // CGSSpaceCreate's documented internal option is `type`; the Dock is
-        // responsible for display placement.  Include the observed display as
-        // advisory metadata where supported, then verify the actual delta.
+        // CGSSpaceCreate accepts only the internal `type` and optional `uuid`
+        // keys.  A display identifier is not a supported option: passing one
+        // appears to succeed on some releases but leaves an unattached Space.
+        // The resulting Space must be shown and then correlated to a display
+        // from a fresh managed-display snapshot.
         let options: NSDictionary = [
-            "type": NSNumber(value: 0),
-            "display": displayIdentifier
+            "type": NSNumber(value: 0)
         ]
         let createdID = create(connection, nil, options as CFDictionary)
         guard createdID != 0 else { return .failure(.failed("CGSSpaceCreate returned id 0")) }
+
+        let show = unsafeBitCast(showSymbol, to: ShowSpaces.self)
+        let ids = NSArray(object: NSNumber(value: createdID))
+        show(connection, ids as CFArray)
 
         guard let after = waitForTopologyChange(from: before) else {
             return .failure(.failed("Native Space creation did not produce a readable topology delta"))
@@ -85,11 +93,18 @@ struct SkyLightNativeSpaceLifecycle: NativeSpaceCreationProviding, NativeSpaceDe
         guard let handle = dlopen(nativeSpaceSkyLightPath, RTLD_LAZY) else { return .failure(.unavailable("SkyLight framework is unavailable")) }
         defer { dlclose(handle) }
         guard let mainSymbol = dlsym(handle, "SLSMainConnectionID"),
-              let destroySymbol = dlsym(handle, "CGSSpaceDestroy") else {
-            return .failure(.unavailable("CGSSpaceDestroy is unavailable on this macOS release"))
+              let destroySymbol = dlsym(handle, "CGSSpaceDestroy"),
+              let hideSymbol = dlsym(handle, "CGSHideSpaces") else {
+            return .failure(.unavailable("CGSSpaceDestroy/CGSHideSpaces are unavailable on this macOS release"))
         }
         let connection = unsafeBitCast(mainSymbol, to: MainConnection.self)()
         let destroy = unsafeBitCast(destroySymbol, to: DestroySpace.self)
+        let hide = unsafeBitCast(hideSymbol, to: HideSpaces.self)
+        let ids = NSArray(object: NSNumber(value: observed.runtimeID))
+        // yabai's scripting-addition path hides a Space before destroying it;
+        // doing the same for the direct CGS path avoids leaving a visible
+        // managed-space handle behind on releases that defer destruction.
+        hide(connection, ids as CFArray)
         destroy(connection, observed.runtimeID)
         guard let after = waitForRemoval(identity: NativeSpaceIdentity(observed), from: before) else {
             return .failure(.failed("Native Space destruction was not verified by a fresh topology read"))
@@ -103,7 +118,9 @@ struct SkyLightNativeSpaceLifecycle: NativeSpaceCreationProviding, NativeSpaceDe
         defer { dlclose(handle) }
         return dlsym(handle, "SLSMainConnectionID") != nil &&
             dlsym(handle, "CGSSpaceCreate") != nil &&
-            dlsym(handle, "CGSSpaceDestroy") != nil
+            dlsym(handle, "CGSSpaceDestroy") != nil &&
+            dlsym(handle, "CGSShowSpaces") != nil &&
+            dlsym(handle, "CGSHideSpaces") != nil
     }
 
     private nonisolated func readValidTopology() -> NativeSpaceTopology? {
