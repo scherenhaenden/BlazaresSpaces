@@ -3,20 +3,20 @@
 ## Goal
 
 BlazaresSpaces must make a Virtual Space correspond to real macOS Mission
-Control Desktops. Creating a Virtual Space must create its native Desktop
+Control Native Spaces. Creating a Virtual Space must create its Native Space
 bindings, and `Activate`, `Previous`, and `Next` must visibly change macOS and
 verify the destination afterwards.
 
 The initial target configuration is **Displays have separate Spaces enabled**.
-Each Virtual Space is therefore a group with one native Desktop per display.
+Each Virtual Space is therefore a group with one Native Space per display.
 
 ## Binding model
 
 | Virtual Space | Display A | Display B | Display C |
 | --- | --- | --- | --- |
-| Work | Native Desktop A1 | Native Desktop B1 | Native Desktop C1 |
-| Development | Native Desktop A2 | Native Desktop B2 | Native Desktop C2 |
-| University | Native Desktop A3 | Missing | Native Desktop C3 |
+| Work | Native Space A1 | Native Space B1 | Native Space C1 |
+| Development | Native Space A2 | Native Space B2 | Native Space C2 |
+| University | Native Space A3 | Missing | Native Space C3 |
 
 Each binding stores the display identifier, runtime native Space ID, observed
 position, Space kind, and verification state. Runtime IDs are session data;
@@ -64,7 +64,7 @@ be based on a verified destination control.
 | Component | Responsibility |
 | --- | --- |
 | `NativeSpacesProviding` | Read displays, native Spaces, types, and active IDs. |
-| `MissionControlAXAdapter` | Open/close Mission Control and invoke Desktop, add, and remove controls. |
+| `MissionControlAXAdapter` | Open/close Mission Control and invoke Native Space, add, and remove controls. |
 | `NativeSpaceOperationCoordinator` | Serialize native operations, manage timeouts, verify results, and publish progress. |
 | `NativeSpaceBindingStore` | Reconcile Virtual Spaces with native bindings and retain partial work. |
 | Inspector | Display topology, bindings, actions, failures, and recovery paths. |

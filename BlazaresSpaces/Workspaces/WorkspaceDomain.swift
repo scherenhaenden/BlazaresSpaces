@@ -78,8 +78,8 @@ struct LogicalWorkspace: Identifiable, Equatable, Sendable {
 struct WorkspaceManager: Equatable, Sendable {
     private(set) var activeWorkspaceID: WorkspaceID = .workspace1
     private(set) var workspaces: [WorkspaceID: LogicalWorkspace] = [
-        .workspace1: LogicalWorkspace(id: .workspace1, name: "Virtual Space 1"),
-        .workspace2: LogicalWorkspace(id: .workspace2, name: "Virtual Space 2")
+        .workspace1: LogicalWorkspace(id: .workspace1, name: "Space 1"),
+        .workspace2: LogicalWorkspace(id: .workspace2, name: "Space 2")
     ]
     private(set) var workspaceOrder: [WorkspaceID] = [.workspace1, .workspace2]
     /// The one canonical copy of every managed member. `LogicalWorkspace.members`
@@ -150,7 +150,7 @@ struct WorkspaceManager: Equatable, Sendable {
     mutating func addWorkspace(name: String? = nil) -> WorkspaceID {
         let ordinal = workspaceOrder.count + 1
         let id = WorkspaceID("workspace-" + String(ordinal) + "-" + UUID().uuidString.prefix(8).lowercased())
-        let defaultName = "Virtual Space " + String(ordinal)
+        let defaultName = "Space " + String(ordinal)
         workspaces[id] = LogicalWorkspace(id: id, name: name?.isEmpty == false ? name! : defaultName)
         workspaceOrder.append(id)
         return id
@@ -202,7 +202,7 @@ struct WorkspaceManager: Equatable, Sendable {
             let id = WorkspaceID(item.id)
             guard configured[id] == nil else { continue }
             let trimmedName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            configured[id] = LogicalWorkspace(id: id, name: trimmedName.isEmpty ? item.id : trimmedName)
+            configured[id] = LogicalWorkspace(id: id, name: Self.migratedDefaultName(trimmedName, fallback: item.id))
             order.append(id)
         }
         if order.isEmpty { return }
@@ -223,6 +223,19 @@ struct WorkspaceManager: Equatable, Sendable {
     }
 
     var configuration: Configuration { Configuration(manager: self) }
+
+    /// Migrate only the legacy generated names. User-chosen names containing
+    /// “Desktop” are preserved exactly; native macOS terminology is handled by
+    /// the Native Spaces layer and must not rewrite Virtual Space labels.
+    private static func migratedDefaultName(_ name: String, fallback: String) -> String {
+        let prefix = "Desktop "
+        if name.hasPrefix(prefix),
+           let number = Int(name.dropFirst(prefix.count)),
+           number >= 1 {
+            return "Space \(number)"
+        }
+        return name.isEmpty ? fallback : name
+    }
 
     /// Deletes only the logical container. When members would otherwise lose all
     /// membership, a destination must be supplied explicitly; windows are never

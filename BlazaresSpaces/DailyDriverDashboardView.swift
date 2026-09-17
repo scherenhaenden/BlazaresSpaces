@@ -16,7 +16,7 @@ struct DailyDriverDashboardView: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     safetyBanner
                     safetyExclusions
-                    desktopController
+                    virtualSpaceController
                     managedWindows
                     restoration
                     diagnostics
@@ -86,7 +86,7 @@ struct DailyDriverDashboardView: View {
         }
     }
 
-    private var desktopController: some View {
+    private var virtualSpaceController: some View {
         GroupBox("Virtual Spaces") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {

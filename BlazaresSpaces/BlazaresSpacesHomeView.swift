@@ -222,8 +222,18 @@ struct BlazaresSpacesHomeView: View {
                         .foregroundStyle(.secondary)
                     if let topology = model.nativeSpaceTopology {
                         ForEach(topology.displays, id: \.displayIdentifier) { display in
-                            let count = topology.spaces.filter { $0.displayIdentifier == display.displayIdentifier && $0.kind == .userDesktop }.count
-                            Label("\(display.displayIdentifier): \(count) ordinary Space(s)", systemImage: "square.stack.3d.up")
+                            let displaySpaces = topology.spaces.filter { $0.displayIdentifier == display.displayIdentifier }
+                            let ordinaryCount = displaySpaces.filter { $0.kind == .userDesktop }.count
+                            let specialSpaces = displaySpaces.filter { $0.kind != .userDesktop }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Label("\(display.displayIdentifier): \(ordinaryCount) ordinary Native Space(s)", systemImage: "square.stack.3d.up")
+                                if !specialSpaces.isEmpty {
+                                    Text("Excluded from Virtual Space mapping: " + specialSpaces.map(\.kind.diagnosticLabel).joined(separator: ", "))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.leading, 25)
+                                }
+                            }
                         }
                     }
                     Text("Saved mappings: \(model.nativeSpaceMappings.count)")

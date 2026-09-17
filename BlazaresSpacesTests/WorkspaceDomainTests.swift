@@ -4,6 +4,30 @@ import Testing
 @testable import BlazaresSpaces
 
 struct WorkspaceDomainTests {
+    @Test func newVirtualSpacesUseNeutralSpaceNames() {
+        var manager = WorkspaceManager()
+        #expect(manager.workspace(for: .workspace1).name == "Space 1")
+        #expect(manager.workspace(for: .workspace2).name == "Space 2")
+        let added = manager.addWorkspace()
+        #expect(manager.workspace(for: added).name == "Space 3")
+    }
+
+    @Test func onlyExactLegacyDesktopOrdinalNamesAreMigrated() {
+        var manager = WorkspaceManager()
+        let legacy = WorkspaceManager.Configuration(
+            workspaces: [
+                .init(id: "workspace-1", name: "Desktop 1"),
+                .init(id: "workspace-2", name: "Desktop 2 extra"),
+                .init(id: "workspace-3", name: "My Desktop 3")
+            ],
+            activeWorkspaceID: "workspace-1"
+        )
+        manager.apply(configuration: legacy)
+        #expect(manager.workspace(for: WorkspaceID("workspace-1")).name == "Space 1")
+        #expect(manager.workspace(for: WorkspaceID("workspace-2")).name == "Desktop 2 extra")
+        #expect(manager.workspace(for: WorkspaceID("workspace-3")).name == "My Desktop 3")
+    }
+
     private func snapshot(
         identifier: String,
         pid: pid_t = 100,

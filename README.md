@@ -2,11 +2,11 @@
 
 ## 0.4.0 Native Spaces foundation
 
-The 0.4.0 branch adds a capability-gated, read-only SkyLight topology bridge and
-an experimental global native-Space focus path. UUID-preferred identity,
-conservative reconciliation, and the logical parking/restoration backend remain
-separate. Native create, destroy, and window movement stay unavailable until
-they can be verified safely on the target macOS release. See the [research](docs/0.4.0-NATIVE-SPACES-RESEARCH.md), [architecture](docs/0.4.0-NATIVE-SPACES-ARCHITECTURE.md), and [ADR](docs/adr/0004-native-spaces-private-api.md).
+The 0.4.0 branch adds a capability-gated SkyLight topology bridge, verified
+Native Space lifecycle and window-movement paths, and an experimental global
+Native Space focus path. UUID-preferred identity, conservative reconciliation,
+and the logical parking/restoration backend remain separate. Native mutations
+remain version-gated and require real-Mac validation. See the [research](docs/0.4.0-NATIVE-SPACES-RESEARCH.md), [architecture](docs/0.4.0-NATIVE-SPACES-ARCHITECTURE.md), and [ADR](docs/adr/0004-native-spaces-private-api.md).
 
 KDE-style global Virtual Spaces for macOS.
 
@@ -28,7 +28,10 @@ Virtual Space 2
 +-------------+-------------+-------------+
 ```
 
-BlazaresSpaces does not tile windows, create or manipulate native macOS Spaces, use private Mission Control/WindowServer APIs, or require disabling SIP. It is currently a proof of concept using public AppKit, CoreGraphics, and Accessibility APIs.
+BlazaresSpaces does not tile windows or manage window geometry as a tiling
+manager. Native Space operations are isolated behind capability-gated private
+SkyLight APIs; the logical backend remains the safe fallback when those APIs
+are unavailable. The app does not silently require disabling SIP.
 
 The app-managed contexts are intentionally called Virtual Spaces. Native macOS
 Spaces remain a separate Mission Control layer; see
@@ -65,7 +68,12 @@ The 0.0.3 experiment adds a controller for logical workspaces spanning all conne
 
 The logical workspace controller supports adding, renaming, reordering, activating, and safely deleting Virtual Spaces. Positional order and the active Virtual Space are persisted in `workspaceOrder` and `activeWorkspaceID`; managed-window durable descriptors, memberships, and sticky state are also represented in the versioned state. Runtime AX identities and temporary parking state are not persisted. Focused-window quick actions revalidate the exact runtime identity before mutation, and `NEVER MANAGE` remains a hard exclusion.
 
-Workspace switching is deliberately opt-in and reversible: enable desktop switching, switch from the desktop manager, menu bar, or configured shortcuts, and use **RECOVER MANAGED WINDOWS** or **Exit & Recover** to restore selected windows. Partial failures, missing windows, unsupported minimized/fullscreen states, adjusted frames, topology changes, and timing metrics are reported per window. New or unselected windows remain unmanaged. There is no automatic adoption, native macOS Spaces integration, tiling, persistence of runtime identities, or crash recovery.
+Workspace switching is deliberately opt-in and reversible: enable Virtual Space
+switching, switch from the Virtual Space manager, menu bar, or configured
+shortcuts, and use **RECOVER MANAGED WINDOWS** or **Exit & Recover** to restore
+selected windows. Partial failures, missing windows, unsupported
+minimized/fullscreen states, adjusted frames, topology changes, and timing
+metrics are reported per window. New or unselected windows remain unmanaged.
 
 ## Running
 
