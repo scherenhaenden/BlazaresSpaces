@@ -41,9 +41,9 @@ final class WorkspaceApplicationService: ObservableObject {
     @Published var actionStatus: String?
     @Published private(set) var restoreReport: WindowRestoreReport?
     @Published private(set) var focusedWindowState: FocusedWindowState = .none
-    @Published private(set) var nativeSpaceTopology: NativeSpaceTopology?
+    @Published var nativeSpaceTopology: NativeSpaceTopology?
     @Published private(set) var nativeSpaceCapabilities: NativeSpaceCapabilities = .unavailable
-    @Published private(set) var nativeSpaceMappings: [NativeSpaceMapping] = []
+    @Published var nativeSpaceMappings: [NativeSpaceMapping] = []
     @Published var nativeSpaceReadStatus = "Native Spaces not refreshed"
     @Published private(set) var nativeSpaceOperationLog: [String] = []
     @Published private(set) var isNativeActivationInProgress = false
@@ -244,7 +244,7 @@ final class WorkspaceApplicationService: ObservableObject {
         }
     }
 
-    private func appendNativeSpaceLog(_ message: String) {
+    func appendNativeSpaceLog(_ message: String) {
         let timestamp = Date().formatted(.dateTime.hour().minute().second())
         let line = "\(timestamp) · \(message)"
         nativeSpaceOperationLog = Array((nativeSpaceOperationLog + [line]).suffix(100))
