@@ -38,16 +38,16 @@ final class WorkspaceApplicationService: ObservableObject {
     @Published private(set) var shortcutConfiguration = GlobalShortcutConfiguration()
     @Published private(set) var persistenceStatus: SessionPersistenceStatus = .loading
     @Published private(set) var restorationItems: [RestorationReviewItem] = []
-    @Published internal(set) var actionStatus: String?
+    @Published var actionStatus: String?
     @Published private(set) var restoreReport: WindowRestoreReport?
     @Published private(set) var focusedWindowState: FocusedWindowState = .none
     @Published private(set) var nativeSpaceTopology: NativeSpaceTopology?
     @Published private(set) var nativeSpaceCapabilities: NativeSpaceCapabilities = .unavailable
     @Published private(set) var nativeSpaceMappings: [NativeSpaceMapping] = []
-    @Published internal(set) var nativeSpaceReadStatus = "Native Spaces not refreshed"
+    @Published var nativeSpaceReadStatus = "Native Spaces not refreshed"
     @Published private(set) var nativeSpaceOperationLog: [String] = []
     @Published private(set) var isNativeActivationInProgress = false
-    @Published internal(set) var isNativeReconciliationInProgress = false
+    @Published var isNativeReconciliationInProgress = false
 
     let windowDiscovery: any WindowDiscovering
     let focusedWindowProvider: any FocusedWindowProviding

@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-private let nativeSpaceSkyLightPath = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
+private nonisolated(unsafe) let nativeSpaceSkyLightPath = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
 
 /// Dynamic SkyLight lifecycle bridge.  The symbols are deliberately resolved
 /// at runtime: they are private, and linking them weakly would make an ABI
