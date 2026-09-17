@@ -7,29 +7,45 @@ import Foundation
 struct NativeSpacesController: NativeSpacesControlling {
     private let provider: any NativeSpacesProviding
     private let gestureActivator: DockSwipeSpaceActivator
+    private let lifecycle: SkyLightNativeSpaceLifecycle
+    private let windowMover: NativeWindowSpaceMover
     private let logStore: NativeSpaceLogStore
     private let timeout: TimeInterval
 
-    nonisolated init(provider: any NativeSpacesProviding = SkyLightNativeSpacesProvider(), gestureActivator: DockSwipeSpaceActivator = DockSwipeSpaceActivator(), logStore: NativeSpaceLogStore = NativeSpaceLogStore(), timeout: TimeInterval = 1.5) {
+    nonisolated init(provider: any NativeSpacesProviding = SkyLightNativeSpacesProvider(), gestureActivator: DockSwipeSpaceActivator = DockSwipeSpaceActivator(), logStore: NativeSpaceLogStore = NativeSpaceLogStore(), timeout: TimeInterval = 1.5, lifecycle: SkyLightNativeSpaceLifecycle? = nil, windowMover: NativeWindowSpaceMover? = nil) {
         self.provider = provider
         self.gestureActivator = gestureActivator
         self.logStore = logStore
         self.timeout = timeout
+        self.lifecycle = lifecycle ?? SkyLightNativeSpaceLifecycle(timeout: timeout)
+        self.windowMover = windowMover ?? NativeWindowSpaceMover(timeout: timeout)
     }
 
     nonisolated func capabilities() -> NativeSpaceCapabilities {
-        // Discovery is intentionally reported by the provider. Mutation via
-        // synthetic Dock gestures is supported only as an explicit experimental
-        // focus path; create/destroy/move remain unavailable.
+        // Mutation is runtime-gated by dynamically resolved lifecycle symbols;
+        // each operation still requires post-mutation topology verification.
         switch provider.readTopology() {
         case .success:
             guard gestureActivator.canPostEvents else {
                 return NativeSpaceCapabilities(discovery: true, create: false, destroy: false, focus: false, moveWindow: false, reasons: ["Native topology is readable, but CGEvent creation is unavailable"])
             }
-            return NativeSpaceCapabilities(discovery: true, create: false, destroy: false, focus: true, moveWindow: false, reasons: ["Focus uses an experimental Dock gesture; topology is revalidated immediately before and after use", "Native Space creation and window movement remain unavailable: no verified mutation ABI"])
+            let canMove = windowMover.backend.isAvailable
+            return NativeSpaceCapabilities(discovery: true, create: lifecycle.symbolsAvailable, destroy: lifecycle.symbolsAvailable, focus: true, moveWindow: canMove, reasons: ["Focus uses an experimental Dock gesture; topology is revalidated immediately before and after use", lifecycle.symbolsAvailable ? "CGSSpaceCreate/CGSSpaceDestroy resolved dynamically; topology verification gates each mutation" : "CGSSpaceCreate/CGSSpaceDestroy unavailable", canMove ? "Window move bridge resolved dynamically and verifies membership" : "Native window move bridge unavailable"])
         case let .failure(error):
             return NativeSpaceCapabilities(discovery: false, create: false, destroy: false, focus: false, moveWindow: false, reasons: [String(describing: error)])
         }
+    }
+
+    nonisolated func createSpace(on displayIdentifier: String) -> Result<NativeSpaceDescriptor, NativeSpaceOperationError> {
+        lifecycle.createNativeSpace(displayIdentifier: displayIdentifier)
+    }
+
+    nonisolated func destroySpace(_ space: NativeSpaceDescriptor, confirmedOwnedByBlazaresSpaces: Bool) -> Result<Void, NativeSpaceOperationError> {
+        lifecycle.destroyNativeSpace(space, confirmedOwnedByBlazaresSpaces: confirmedOwnedByBlazaresSpaces)
+    }
+
+    nonisolated func moveWindow(_ window: WindowRuntimeIdentity, to space: NativeSpaceDescriptor, topology: NativeSpaceTopology) -> Result<Void, NativeSpaceOperationError> {
+        windowMover.move(window, to: space, topology: topology)
     }
 
     nonisolated func focusSpace(_ space: NativeSpaceDescriptor, topology: NativeSpaceTopology) -> NativeSpaceActivationResult {

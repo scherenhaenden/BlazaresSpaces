@@ -120,6 +120,7 @@ final class DiagnosticsViewModel: ObservableObject {
     var nativeSpaceReadStatus: String { service.nativeSpaceReadStatus }
     var nativeSpaceOperationLog: [String] { service.nativeSpaceOperationLog }
     var isNativeActivationInProgress: Bool { service.isNativeActivationInProgress }
+    var isNativeReconciliationInProgress: Bool { service.isNativeReconciliationInProgress }
     func updateManagementExclusions(applicationNames: [String], bundlePrefixes: [String]) {
         service.updateManagementExclusions(applicationNames: applicationNames, bundlePrefixes: bundlePrefixes)
     }
@@ -242,6 +243,10 @@ final class DiagnosticsViewModel: ObservableObject {
 
     func assignWindow(_ window: WindowSnapshot, toScreen display: DisplaySnapshot, in workspaceID: WorkspaceID) {
         service.assignWindow(window, to: display, in: workspaceID)
+    }
+
+    func ensureRequiredNativeSpaces() {
+        service.ensureRequiredNativeSpaces()
     }
 
     func setWindowVisibleOnAllWorkspaces(_ window: WindowSnapshot, visible: Bool) {

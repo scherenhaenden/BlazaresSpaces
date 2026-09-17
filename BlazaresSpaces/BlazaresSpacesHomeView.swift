@@ -229,6 +229,15 @@ struct BlazaresSpacesHomeView: View {
                     Text("Saved mappings: \(model.nativeSpaceMappings.count)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Button("Ensure required Native Spaces") {
+                        model.ensureRequiredNativeSpaces()
+                    }
+                    .disabled(model.isNativeReconciliationInProgress || !model.nativeSpaceCapabilities.create)
+                    Text(model.nativeSpaceCapabilities.create
+                         ? "Creates and verifies missing Spaces one at a time."
+                         : "Creation is unavailable for the current runtime configuration.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

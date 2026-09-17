@@ -71,6 +71,12 @@ nonisolated protocol NativeSpaceCreationProviding: NativeSpacesProviding {
     nonisolated func createNativeSpace(displayIdentifier: String) -> Result<NativeSpaceDescriptor, NativeSpaceOperationError>
 }
 
+/// Destruction is a separate capability so generic topology providers cannot
+/// accidentally infer ownership from a read-only snapshot.
+nonisolated protocol NativeSpaceDestructionProviding: Sendable {
+    nonisolated func destroyNativeSpace(_ space: NativeSpaceDescriptor, confirmedOwnedByBlazaresSpaces: Bool) -> Result<Void, NativeSpaceOperationError>
+}
+
 /// Executes a previously computed plan without making planner decisions.
 /// Every mutation is guarded by a fresh topology comparison and followed by a
 /// topology read. This prevents a stale Mission Control snapshot from causing
@@ -83,7 +89,8 @@ nonisolated struct NativeSpaceReconciliationExecutor: Sendable {
         virtualSpaceIDs: [String],
         displays: [String],
         expectedTopology: NativeSpaceTopology,
-        provider: any NativeSpaceCreationProviding
+        provider: any NativeSpaceCreationProviding,
+        existingMappings: [NativeSpaceMapping] = []
     ) -> NativeSpaceReconciliationResult {
         var current = expectedTopology
         var mappings: [NativeSpaceMapping] = []
@@ -104,8 +111,14 @@ nonisolated struct NativeSpaceReconciliationExecutor: Sendable {
                         failures.append("\(virtualID)/\(display): retained native Space became stale")
                         continue
                     }
+                    // Preserve provenance from the persisted mapping. A retain
+                    // action must never silently turn an owned Space into an
+                    // unowned one after startup reconciliation.
+                    let wasOwned = existingMappings.first(where: {
+                        $0.virtualSpaceID == virtualID && $0.displayIdentifier == display && $0.nativeIdentity.matches(space)
+                    })?.managedByBlazaresSpaces ?? false
                     mappings.append(NativeSpaceMapping(virtualSpaceID: virtualID, displayIdentifier: display,
-                                                       nativeIdentity: NativeSpaceIdentity(space), managedByBlazaresSpaces: false))
+                                                       nativeIdentity: NativeSpaceIdentity(space), managedByBlazaresSpaces: wasOwned))
                 case let .review(_, reason):
                     failures.append("\(virtualID)/\(display): \(reason)")
                 case let .create(targetDisplay):

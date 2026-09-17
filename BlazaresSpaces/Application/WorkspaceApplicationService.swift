@@ -38,15 +38,16 @@ final class WorkspaceApplicationService: ObservableObject {
     @Published private(set) var shortcutConfiguration = GlobalShortcutConfiguration()
     @Published private(set) var persistenceStatus: SessionPersistenceStatus = .loading
     @Published private(set) var restorationItems: [RestorationReviewItem] = []
-    @Published private(set) var actionStatus: String?
+    @Published internal(set) var actionStatus: String?
     @Published private(set) var restoreReport: WindowRestoreReport?
     @Published private(set) var focusedWindowState: FocusedWindowState = .none
     @Published private(set) var nativeSpaceTopology: NativeSpaceTopology?
     @Published private(set) var nativeSpaceCapabilities: NativeSpaceCapabilities = .unavailable
     @Published private(set) var nativeSpaceMappings: [NativeSpaceMapping] = []
-    @Published private(set) var nativeSpaceReadStatus = "Native Spaces not refreshed"
+    @Published internal(set) var nativeSpaceReadStatus = "Native Spaces not refreshed"
     @Published private(set) var nativeSpaceOperationLog: [String] = []
     @Published private(set) var isNativeActivationInProgress = false
+    @Published internal(set) var isNativeReconciliationInProgress = false
 
     let windowDiscovery: any WindowDiscovering
     let focusedWindowProvider: any FocusedWindowProviding
@@ -68,6 +69,7 @@ final class WorkspaceApplicationService: ObservableObject {
     private var switchQueue = WorkspaceSwitchRequestQueue()
     private var windowDiscoveryTask: Task<Void, Never>?
     private var nativeActivationTask: Task<Void, Never>?
+    private var pendingNativeActivationID: WorkspaceID?
     private var hasCompletedInitialRefresh = false
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BlazaresSpaces", category: "ApplicationService")
 
@@ -555,8 +557,9 @@ final class WorkspaceApplicationService: ObservableObject {
 
     private func activateNativeWorkspace(_ id: WorkspaceID) {
         guard !isNativeActivationInProgress else {
-            actionStatus = "A native Space activation is already in progress."
-            appendNativeSpaceLog("ACTIVATE ignored · operation already in progress")
+            pendingNativeActivationID = id
+            actionStatus = "Native activation is busy; the latest Virtual Space request will run next."
+            appendNativeSpaceLog("ACTIVATE queued · virtual=\(workspaceName(id))")
             return
         }
         guard let position = workspaceManager.workspaceOrder.firstIndex(of: id).map({ $0 + 1 }) else { return }
@@ -586,6 +589,10 @@ final class WorkspaceApplicationService: ObservableObject {
             case let .unavailable(message), let .failed(message):
                 self?.actionStatus = "Native activation failed: \(message)"
                 self?.appendNativeSpaceLog("ACTIVATE failed · \(message)")
+            }
+            if let pending = self?.pendingNativeActivationID {
+                self?.pendingNativeActivationID = nil
+                self?.activateNativeWorkspace(pending)
             }
         }
     }
@@ -803,6 +810,34 @@ final class WorkspaceApplicationService: ObservableObject {
         }
         persistAuthoritativeState()
         actionStatus = "Assigned \(window.applicationName) to \(display.name) in \(workspaceName(workspaceID))."
+
+        // Screen placement is persisted independently from membership. When a
+        // verified native mapping is available, also request the corresponding
+        // native move; failure leaves the intended placement intact and is
+        // surfaced as degraded rather than silently changing membership.
+        guard experimentalNativeSpacesEnabled,
+              let topology = nativeSpaceTopology,
+              let mapping = nativeSpaceMappings.first(where: {
+                  $0.virtualSpaceID == workspaceID.rawValue && $0.displayIdentifier == displayIdentifier(for: display)
+              }),
+              let target = topology.spaces.first(where: { mapping.nativeIdentity.matches($0) }) else { return }
+        let controller = nativeSpacesController
+        Task { @MainActor [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                controller.moveWindow(window.runtimeIdentity, to: target, topology: topology)
+            }.value
+            guard let self else { return }
+            if case let .failure(error) = result {
+                self.actionStatus = "Screen placement saved, but native window move was not verified: \(error)"
+            }
+        }
+    }
+
+    private func displayIdentifier(for display: DisplaySnapshot) -> String {
+        if let uuid = CGDisplayCreateUUIDFromDisplayID(display.id)?.takeRetainedValue() {
+            return CFUUIDCreateString(nil, uuid) as String
+        }
+        return display.isMain ? "Main" : String(display.id)
     }
 
     func setWindowVisibleOnAllWorkspaces(_ window: WindowSnapshot, visible: Bool) {
