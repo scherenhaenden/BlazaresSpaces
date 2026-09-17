@@ -86,10 +86,10 @@ struct SkyLightWindowSpaceMutationBackend: NativeWindowSpaceMutationBackend {
         let wid = UInt32(windowID)
         let windows = [NSNumber(value: wid)] as NSArray
         if let asyncSymbol = dlsym(handle, "SLSPerformAsynchronousBridgedWindowManagementOperation"),
-           let cls = objc_getClass("SLSBridgedMoveWindowsToManagedSpaceOperation") {
+           let cls = objc_getClass("SLSBridgedMoveWindowsToManagedSpaceOperation") as? AnyClass {
             let perform = unsafeBitCast(asyncSymbol, to: PerformAsync.self)
             let selector = sel_registerName("initWithWindows:spaceID:")
-            guard let operation = class_createInstance(cls, 0) else { return .failure(.failed("Could not allocate bridged window operation")) }
+            let operation = class_createInstance(cls, 0) as AnyObject
             guard let initialized = blazaresObjcMsgSend(operation, selector, windows, spaceID) else { return .failure(.failed("Could not initialize bridged window operation")) }
             perform(initialized)
             return .success(())
