@@ -511,7 +511,7 @@ final class WorkspaceApplicationService: ObservableObject {
     func renameWorkspace(_ id: WorkspaceID, name: String) -> Bool {
         let renamed = workspaceManager.renameWorkspace(id, name: name)
         if renamed { persistAuthoritativeState() }
-        actionStatus = renamed ? "Renamed desktop." : "Desktop name cannot be empty."
+        actionStatus = renamed ? "Renamed Virtual Space." : "Virtual Space name cannot be empty."
         return renamed
     }
 
@@ -519,7 +519,7 @@ final class WorkspaceApplicationService: ObservableObject {
         let moved = workspaceManager.moveWorkspace(id, by: offset)
         if moved {
             persistAuthoritativeState()
-            actionStatus = "Desktop order updated."
+            actionStatus = "Virtual Space order updated."
         }
         return moved
     }
@@ -528,14 +528,14 @@ final class WorkspaceApplicationService: ObservableObject {
         let deleted = workspaceManager.deleteWorkspace(id, moveExclusiveMembersTo: destination)
         if deleted { persistAuthoritativeState() }
         actionStatus = deleted
-            ? "Deleted the logical desktop; windows were not closed or destroyed."
-            : "Choose an explicit replacement desktop for exclusive members or the active desktop."
+            ? "Deleted the Virtual Space; windows were not closed or destroyed."
+            : "Choose an explicit replacement Virtual Space for exclusive members or the active Virtual Space."
         return deleted
     }
 
     func activateWorkspace(_ id: WorkspaceID) {
         guard workspaceManager.workspaceIDs.contains(id) else {
-            actionStatus = "That desktop no longer exists."
+            actionStatus = "That Virtual Space no longer exists."
             return
         }
         let mode: VirtualSpaceActivationMode = experimentalNativeSpacesEnabled
@@ -547,7 +547,7 @@ final class WorkspaceApplicationService: ObservableObject {
         case .logicalOnly:
             _ = workspaceManager.activate(id)
             persistAuthoritativeState()
-            actionStatus = "Activated \(workspaceName(id)) in the logical desktop model."
+            actionStatus = "Activated \(workspaceName(id)) in the logical Virtual Space model."
         case .nativeSpacesExperimental:
             activateNativeWorkspace(id)
         }
@@ -570,7 +570,7 @@ final class WorkspaceApplicationService: ObservableObject {
         appendNativeSpaceLog("ACTIVATE topology · current=\(current.map { "\($0.displayIdentifier):\($0.runtimeID)" }.joined(separator: ","))")
         let controller = nativeSpacesController
         isNativeActivationInProgress = true
-        actionStatus = "Activating native macOS Desktop \(position)…"
+        actionStatus = "Activating native macOS Space \(position)…"
         nativeActivationTask = Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) {
                 controller.activate(virtualPosition: position, topology: topology)
@@ -581,7 +581,7 @@ final class WorkspaceApplicationService: ObservableObject {
             case .activated:
                 _ = self?.workspaceManager.activate(id)
                 self?.persistAuthoritativeState()
-                self?.actionStatus = "Activated native macOS Desktop \(position) for \(self?.workspaceName(id) ?? "Virtual Space")."
+                self?.actionStatus = "Activated native macOS Space \(position) for \(self?.workspaceName(id) ?? "Virtual Space")."
                 self?.appendNativeSpaceLog("ACTIVATE success · virtual=\(position)")
             case let .unavailable(message), let .failed(message):
                 self?.actionStatus = "Native activation failed: \(message)"
@@ -610,7 +610,7 @@ final class WorkspaceApplicationService: ObservableObject {
 
     func switchWorkspace(to targetID: WorkspaceID) {
         guard experimentalWorkspaceModeEnabled else {
-            actionStatus = "Enable desktop switching before switching desktops."
+            actionStatus = "Enable Virtual Space switching before switching Virtual Spaces."
             return
         }
         guard accessibilityGranted else {
@@ -629,7 +629,7 @@ final class WorkspaceApplicationService: ObservableObject {
         let sourceID = workspaceManager.activeWorkspaceID
         guard sourceID != targetID, workspaceManager.workspaceIDs.contains(targetID) else { return }
         guard let immediate = switchQueue.request(targetID) else {
-            actionStatus = "Switch already running; keeping only the latest requested desktop."
+            actionStatus = "Switch already running; keeping only the latest requested Virtual Space."
             workspaceSwitchState = switchQueue.state
             return
         }
@@ -666,7 +666,7 @@ final class WorkspaceApplicationService: ObservableObject {
             return
         }
         guard accessibilityGranted else {
-            actionStatus = "Accessibility permission is required before enabling desktop switching."
+            actionStatus = "Accessibility permission is required before enabling Virtual Space switching."
             return
         }
         let activeID = workspaceManager.activeWorkspaceID
@@ -696,17 +696,17 @@ final class WorkspaceApplicationService: ObservableObject {
             results: results,
             metrics: WorkspaceSwitchMetrics(captureMilliseconds: captureMS, parkingMilliseconds: parkingMS, restoreMilliseconds: 0, totalMilliseconds: captureMS + parkingMS, windowsProcessed: processed)
         )
-        actionStatus = "Desktop switching enabled. Only explicitly managed windows are controlled."
+        actionStatus = "Virtual Space switching enabled. Only explicitly managed windows are controlled."
     }
 
     func exitExperimentalWorkspaceMode() {
         guard experimentalWorkspaceModeEnabled else { return }
         guard performManagedWindowRecovery() else {
-            actionStatus = "Desktop switching remains enabled because one or more parked windows could not be recovered."
+            actionStatus = "Virtual Space switching remains enabled because one or more parked windows could not be recovered."
             return
         }
         experimentalWorkspaceModeEnabled = false
-        actionStatus = "Desktop switching exited after explicit recovery."
+        actionStatus = "Virtual Space switching exited after explicit recovery."
     }
 
     // MARK: - Window Management & Enrollment

@@ -78,8 +78,8 @@ struct LogicalWorkspace: Identifiable, Equatable, Sendable {
 struct WorkspaceManager: Equatable, Sendable {
     private(set) var activeWorkspaceID: WorkspaceID = .workspace1
     private(set) var workspaces: [WorkspaceID: LogicalWorkspace] = [
-        .workspace1: LogicalWorkspace(id: .workspace1, name: "Desktop 1"),
-        .workspace2: LogicalWorkspace(id: .workspace2, name: "Desktop 2")
+        .workspace1: LogicalWorkspace(id: .workspace1, name: "Virtual Space 1"),
+        .workspace2: LogicalWorkspace(id: .workspace2, name: "Virtual Space 2")
     ]
     private(set) var workspaceOrder: [WorkspaceID] = [.workspace1, .workspace2]
     /// The one canonical copy of every managed member. `LogicalWorkspace.members`
@@ -150,7 +150,7 @@ struct WorkspaceManager: Equatable, Sendable {
     mutating func addWorkspace(name: String? = nil) -> WorkspaceID {
         let ordinal = workspaceOrder.count + 1
         let id = WorkspaceID("workspace-" + String(ordinal) + "-" + UUID().uuidString.prefix(8).lowercased())
-        let defaultName = "Desktop " + String(ordinal)
+        let defaultName = "Virtual Space " + String(ordinal)
         workspaces[id] = LogicalWorkspace(id: id, name: name?.isEmpty == false ? name! : defaultName)
         workspaceOrder.append(id)
         return id

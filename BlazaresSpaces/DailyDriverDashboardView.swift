@@ -139,7 +139,7 @@ struct DailyDriverDashboardView: View {
 
                 GroupBox("Native macOS Spaces") {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Experimental native integration. Existing Spaces may be activated; creation, deletion and window movement are not automatic yet.")
+                        Text("Experimental native integration. Existing macOS Spaces may be activated; creation, deletion and window movement are not automatic yet.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         HStack {

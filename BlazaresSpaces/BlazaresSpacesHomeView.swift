@@ -32,7 +32,7 @@ struct BlazaresSpacesHomeView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("BlazaresSpaces")
                         .font(.headline)
-                    Text("Global desktops")
+                    Text("Virtual Spaces across displays")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -113,7 +113,7 @@ struct BlazaresSpacesHomeView: View {
                     Text(model.workspaceName(id))
                         .font(.system(size: 13, weight: active ? .semibold : .medium))
                         .lineLimit(1)
-                    Text(isDropTarget ? "Drop window here" : (active ? "Current desktop" : "Switch desktop"))
+                    Text(isDropTarget ? "Drop window here" : (active ? "Current Virtual Space" : "Switch Virtual Space"))
                         .font(.caption2)
                         .foregroundStyle(isDropTarget ? Color.accentColor : .secondary)
                 }
@@ -278,7 +278,7 @@ struct BlazaresSpacesHomeView: View {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Current desktop")
+            Text("Current Virtual Space")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
@@ -339,7 +339,7 @@ struct BlazaresSpacesHomeView: View {
             HStack(spacing: 10) {
                 settingCard(
                     title: "Native Spaces",
-                    subtitle: "Real macOS desktops",
+                    subtitle: "Real macOS Spaces",
                     icon: "rectangle.3.group",
                     isOn: Binding(
                         get: { model.experimentalNativeSpacesEnabled },
@@ -401,7 +401,7 @@ struct BlazaresSpacesHomeView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Detected windows")
                         .font(.title3.weight(.semibold))
-                    Text("Drag a window onto a desktop in the sidebar to assign it there.")
+                    Text("Drag a window onto a Virtual Space in the sidebar to change membership. Screen placement is configured separately below.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -436,9 +436,16 @@ struct BlazaresSpacesHomeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
             } else {
-                LazyVStack(spacing: 8) {
-                    ForEach(model.windows) { window in
-                        detectedWindowRow(window)
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(windowsGroupedByScreen.enumerated()), id: \.offset) { _, group in
+                        GroupBox(group.title) {
+                            LazyVStack(spacing: 8) {
+                                ForEach(group.windows) { window in
+                                    detectedWindowRow(window)
+                                }
+                            }
+                            .padding(6)
+                        }
                     }
                 }
             }
@@ -448,26 +455,34 @@ struct BlazaresSpacesHomeView: View {
     private var virtualSpaceDetail: some View {
         let workspaceID = model.workspaceManager.activeWorkspaceID
         let workspace = model.workspaceManager.workspace(for: workspaceID)
-        return GroupBox("\(workspace.name) · screen placement") {
+        let groups = workspaceMembersGroupedByScreen(workspace.members, workspaceID: workspaceID)
+        return GroupBox("\(workspace.name) · membership & Screen placement") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Level 1: membership assigns a window to this Virtual Space. Level 2: screen placement assigns it to a connected display.")
+                Text("Membership (Level 1) controls which Virtual Space contains a window. Screen placement (Level 2) only chooses its connected display; changing it does not change membership.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if workspace.members.isEmpty {
                     Text("No managed windows assigned yet.").foregroundStyle(.secondary)
                 } else {
-                    ForEach(workspace.members) { member in
-                        HStack {
-                            Label(member.authorizedWindow.applicationName, systemImage: "macwindow")
-                            Spacer()
-                            Text(member.screenAssignments[workspaceID]?.displayName ?? "No screen preference")
-                                .font(.caption)
+                    ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(group.title)
+                                .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.secondary)
-                            Menu("Screen") {
-                                ForEach(model.displays) { display in
-                                    Button(display.name) {
-                                        if let window = model.windows.first(where: { $0.runtimeIdentity == member.id }) {
-                                            model.assignWindow(window, toScreen: display, in: workspaceID)
+                            ForEach(group.members) { member in
+                                HStack {
+                                    Label(member.authorizedWindow.applicationName, systemImage: "macwindow")
+                                    Spacer()
+                                    Text(member.screenAssignments[workspaceID]?.displayName ?? "No screen preference")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Menu("Move to Screen") {
+                                        ForEach(model.displays) { display in
+                                            Button(display.name) {
+                                                if let window = model.windows.first(where: { $0.runtimeIdentity == member.id }) {
+                                                    model.assignWindow(window, toScreen: display, in: workspaceID)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -478,6 +493,64 @@ struct BlazaresSpacesHomeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Discovery is grouped by the currently observed Screen, independently
+    /// from Virtual Space membership (which may be many-to-many).
+    private var windowsGroupedByScreen: [(title: String, windows: [WindowSnapshot])] {
+        var groups: [(title: String, windows: [WindowSnapshot])] = model.displays.map { display in
+            (title: "Screen · \(display.name)", windows: [])
+        }
+        var unassigned: [WindowSnapshot] = []
+
+        for window in model.windows {
+            guard let display = screen(for: window),
+                  let index = model.displays.firstIndex(where: { $0.id == display.id }) else {
+                unassigned.append(window)
+                continue
+            }
+            groups[index].windows.append(window)
+        }
+
+        if !unassigned.isEmpty {
+            groups.append((title: "Screen · Unassigned", windows: unassigned))
+        }
+        return groups.filter { !$0.windows.isEmpty }
+    }
+
+    private func screen(for window: WindowSnapshot) -> DisplaySnapshot? {
+        if let displayID = window.displayID,
+           let display = model.displays.first(where: { $0.id == displayID }) {
+            return display
+        }
+        let center = CGPoint(x: window.frame.midX, y: window.frame.midY)
+        return model.displays.min { lhs, rhs in
+            let left = CGPoint(x: lhs.frame.midX, y: lhs.frame.midY)
+            let right = CGPoint(x: rhs.frame.midX, y: rhs.frame.midY)
+            return hypot(left.x - center.x, left.y - center.y) < hypot(right.x - center.x, right.y - center.y)
+        }
+    }
+
+    private func workspaceMembersGroupedByScreen(
+        _ members: [WorkspaceMember],
+        workspaceID: WorkspaceID
+    ) -> [(title: String, members: [WorkspaceMember])] {
+        var groups: [(title: String, members: [WorkspaceMember])] = model.displays.map { display in
+            (title: "Screen · \(display.name)", members: [])
+        }
+        var unassigned: [WorkspaceMember] = []
+        for member in members {
+            guard let assignment = member.screenAssignments[workspaceID],
+                  let index = model.displays.firstIndex(where: { $0.id == assignment.displayID }) else {
+                unassigned.append(member)
+                continue
+            }
+            groups[index].members.append(member)
+        }
+        if !unassigned.isEmpty {
+            groups.append((title: "Screen · Unassigned", members: unassigned))
+        }
+        return groups.filter { !$0.members.isEmpty }
     }
 
     private func detectedWindowRow(_ window: WindowSnapshot) -> some View {
@@ -551,7 +624,7 @@ struct BlazaresSpacesHomeView: View {
 
             Image(systemName: exclusion == nil ? "line.3.horizontal" : "lock.fill")
                 .foregroundStyle(.tertiary)
-                .help(exclusion == nil ? "Drag this window onto a desktop in the sidebar" : (exclusion ?? "Excluded"))
+                .help(exclusion == nil ? "Drag this window onto a Virtual Space in the sidebar" : (exclusion ?? "Excluded"))
         }
         .padding(12)
         .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
