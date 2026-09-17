@@ -30,6 +30,13 @@ struct DockSwipeSpaceActivator: Sendable {
 
     nonisolated init() {}
 
+    /// A nil CGEvent source means that this process cannot even construct the
+    /// event required by the experimental backend. Keep this probe separate
+    /// from posting so capability discovery never mutates user state.
+    nonisolated var canPostEvents: Bool {
+        CGEvent(source: nil) != nil
+    }
+
     @discardableResult
     nonisolated func performSwitchGesture(direction: NativeSpaceSwipeDirection, velocity: Double = 2_000) -> Bool {
         let sign = direction == .right ? 1.0 : -1.0

@@ -57,6 +57,7 @@ actor NativeSpaceMappingStore {
     private static func isValid(_ mappings: [NativeSpaceMapping]) -> Bool {
         let keys = mappings.map { $0.virtualSpaceID + "\u{1f}" + $0.displayIdentifier }
         return mappings.allSatisfy { !$0.virtualSpaceID.isEmpty && !$0.displayIdentifier.isEmpty }
+            && mappings.allSatisfy { !$0.managedByBlazaresSpaces || $0.nativeIdentity.uuid != nil }
             && Set(keys).count == keys.count
     }
 }

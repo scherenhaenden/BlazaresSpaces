@@ -23,24 +23,35 @@ struct NativeSpacesController: NativeSpacesControlling {
         // focus path; create/destroy/move remain unavailable.
         switch provider.readTopology() {
         case .success:
-            return NativeSpaceCapabilities(discovery: true, create: false, destroy: false, focus: true, moveWindow: false, reasons: ["Focus uses an experimental Dock gesture; topology must be revalidated immediately before use"])
+            guard gestureActivator.canPostEvents else {
+                return NativeSpaceCapabilities(discovery: true, create: false, destroy: false, focus: false, moveWindow: false, reasons: ["Native topology is readable, but CGEvent creation is unavailable"])
+            }
+            return NativeSpaceCapabilities(discovery: true, create: false, destroy: false, focus: true, moveWindow: false, reasons: ["Focus uses an experimental Dock gesture; topology is revalidated immediately before and after use", "Native Space creation and window movement remain unavailable: no verified mutation ABI"])
         case let .failure(error):
             return NativeSpaceCapabilities(discovery: false, create: false, destroy: false, focus: false, moveWindow: false, reasons: [String(describing: error)])
         }
     }
 
     nonisolated func focusSpace(_ space: NativeSpaceDescriptor, topology: NativeSpaceTopology) -> NativeSpaceActivationResult {
-        guard topology.spaces.contains(where: { $0.runtimeID == space.runtimeID && $0.kind == .userDesktop }) else {
+        guard let fresh = readValidatedTopology() else {
+            return .failed("Could not read a valid native topology before focusing")
+        }
+        guard let current = fresh.spaces.first(where: { NativeSpaceIdentity(space).matches($0) && $0.kind == .userDesktop }) else {
             return .failed("Refused to focus a stale or non-user native Space")
         }
-        guard let position = NativeSpaceTopologyMapper().bindings(for: topology).first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == space.runtimeID } })?.virtualSpacePosition else {
+        guard let position = NativeSpaceTopologyMapper().bindings(for: fresh).first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == current.runtimeID } })?.virtualSpacePosition else {
             return .failed("Native Space has no conservative Virtual Space mapping")
         }
-        return activate(virtualPosition: position, topology: topology)
+        return activate(virtualPosition: position, topology: fresh)
     }
 
     nonisolated func activate(virtualPosition: Int, topology: NativeSpaceTopology) -> NativeSpaceActivationResult {
         guard virtualPosition > 0 else { return .failed("Virtual Space position must be positive") }
+        // Never mutate from a caller's potentially stale snapshot. The
+        // immediately preceding read is the authority for all runtime IDs.
+        guard let topology = readValidatedTopology() else {
+            return .failed("Could not read a valid native topology before activation")
+        }
         let bindings = NativeSpaceTopologyMapper().bindings(for: topology)
         guard !topology.displays.isEmpty else { return .failed("No native displays were discovered") }
 
@@ -60,14 +71,15 @@ struct NativeSpacesController: NativeSpacesControlling {
 
         var failures: [String] = []
         for display in topology.displays {
+            let failureCount = failures.count
             let displaySpaces = topology.spaces.filter { $0.displayIdentifier == display.displayIdentifier && $0.kind == .userDesktop }
             guard let currentSpace = displaySpaces.first(where: { $0.isCurrent }),
                   let currentPosition = bindings.first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == currentSpace.runtimeID } })?.virtualSpacePosition else {
-                failures.append("display \(display.displayIdentifier): current desktop unresolved")
+                failures.append("display \(display.displayIdentifier): current Native Space unresolved")
                 continue
             }
             guard bindings.first(where: { $0.virtualSpacePosition == virtualPosition })?.spacesByDisplay[display.displayIdentifier] != nil else {
-                failures.append("display \(display.displayIdentifier): target Desktop \(virtualPosition) unavailable")
+                failures.append("display \(display.displayIdentifier): target Native Space \(virtualPosition) unavailable")
                 continue
             }
             if currentPosition == virtualPosition {
@@ -87,7 +99,7 @@ struct NativeSpacesController: NativeSpacesControlling {
             for offset in 1...abs(delta) {
                 let nextPosition = currentPosition + offset * step
                 guard let nextSpace = bindings.first(where: { $0.virtualSpacePosition == nextPosition })?.spacesByDisplay[display.displayIdentifier] else {
-                failures.append("display " + display.displayIdentifier + ": intermediate Desktop " + String(nextPosition) + " unavailable")
+                failures.append("display " + display.displayIdentifier + ": intermediate Native Space " + String(nextPosition) + " unavailable")
                     break
                 }
                 let progress = (direction == .right ? 1.0 : -1.0) * Double(Float.leastNonzeroMagnitude)
@@ -98,11 +110,11 @@ struct NativeSpacesController: NativeSpacesControlling {
                     break
                 }
                 guard waitForTarget(nextSpace.runtimeID, semaphore: semaphore) else {
-                    failures.append("display " + display.displayIdentifier + ": Desktop " + String(nextPosition) + " was not verified")
+                    failures.append("display " + display.displayIdentifier + ": Native Space " + String(nextPosition) + " was not verified")
                     break
                 }
             }
-            if failures.last?.hasPrefix("display " + display.displayIdentifier + ":") != true {
+            if failures.count == failureCount {
                 logStore.append("DISPLAY SUCCESS id=" + display.displayIdentifier + " current=" + String(currentPosition) + " target=" + String(virtualPosition))
             }
         }
@@ -113,14 +125,18 @@ struct NativeSpacesController: NativeSpacesControlling {
             return .failed(message)
         }
 
-        guard let refreshed = provider.readTopology().value else {
+        guard let refreshed = readValidatedTopology() else {
             return .failed("GLOBAL FAILURE: final native topology could not be read")
         }
+        let refreshedBindings = NativeSpaceTopologyMapper().bindings(for: refreshed)
         let unverified = refreshed.displays.compactMap { display -> String? in
             let spaces = refreshed.spaces.filter { $0.displayIdentifier == display.displayIdentifier && $0.kind == .userDesktop }
             guard let current = spaces.first(where: { $0.isCurrent }),
-                  let position = bindings.first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == current.runtimeID } })?.virtualSpacePosition,
-                  position == virtualPosition else { return display.displayIdentifier }
+                  let position = refreshedBindings.first(where: { $0.spacesByDisplay.values.contains { $0.runtimeID == current.runtimeID } })?.virtualSpacePosition,
+                  position == virtualPosition,
+                  refreshedBindings.first(where: { $0.virtualSpacePosition == virtualPosition })?.spacesByDisplay[display.displayIdentifier] != nil else {
+                return display.displayIdentifier
+            }
             return nil
         }
         guard unverified.isEmpty else {
@@ -148,6 +164,14 @@ struct NativeSpacesController: NativeSpacesControlling {
             guard let uuid = CGDisplayCreateUUIDFromDisplayID(CGDirectDisplayID(number.uint32Value))?.takeRetainedValue() else { return false }
             return (CFUUIDCreateString(nil, uuid) as String) == identifier || (identifier == "Main" && screen == NSScreen.main)
         }).map { CGPoint(x: $0.frame.midX, y: $0.frame.midY) }
+    }
+
+    private nonisolated func readValidatedTopology() -> NativeSpaceTopology? {
+        guard case let .success(topology) = provider.readTopology(),
+              case .success = NativeSpaceTopologyValidator().validate(topology) else {
+            return nil
+        }
+        return topology.normalized
     }
 }
 
