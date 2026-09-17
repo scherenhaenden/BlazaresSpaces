@@ -48,7 +48,12 @@ struct SkyLightNativeSpacesProvider: NativeSpacesProviding {
                     return .failure(.malformedData("Unexpected native Space shape"))
                 }
                 let type = number(space["type"]).map(Int.init) ?? -1
-                let kind: NativeSpaceKind = type == 0 ? .userDesktop : (type == 4 ? .fullScreen : .unknown(rawValue: type))
+                // Keep the raw payload available for explicit role markers.
+                // In particular, type 4 is shared by native-fullscreen and
+                // Split View/tiled Spaces on current macOS releases; do not
+                // guess which special role it represents.
+                let metadata = space as? [String: Any] ?? [:]
+                let kind = NativeSpaceKind.fromMetadata(type: type, metadata: metadata)
                 descriptors.append(.init(
                     runtimeID: runtimeID,
                     uuid: space["uuid"] as? String,
