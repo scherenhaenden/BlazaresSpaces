@@ -41,9 +41,12 @@ extension WorkspaceApplicationService {
             mappings: nativeSpaceMappings
         )
         if plan.requiresReview {
-            actionStatus = "Native topology requires explicit mapping review before reconciliation."
-            nativeSpaceReadStatus = "Native topology requires review before adopting existing Spaces."
-            return
+            // Review actions are retained as explicit failures by the
+            // executor, but must not prevent independent missing Spaces from
+            // being created. A topology with one unowned existing Space and a
+            // missing later Space is a normal migration case: create what we
+            // can and leave the ambiguous binding for user confirmation.
+            nativeSpaceReadStatus = "Native topology contains mappings requiring review; safe missing Spaces will still be reconciled."
         }
         isNativeReconciliationInProgress = true
         actionStatus = "Reconciling required Native Spaces…"

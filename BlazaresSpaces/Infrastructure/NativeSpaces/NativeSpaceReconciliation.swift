@@ -99,12 +99,26 @@ nonisolated struct NativeSpaceReconciliationExecutor: Sendable {
         // Retains are resolved against the snapshot, never adopted as owned.
         // The planner has no virtual ID in its action payload, so resolve the
         // deterministic action order (virtual space, then display).
-        var actionIndex = 0
-        for virtualID in virtualSpaceIDs {
-            for display in displays {
-                guard actionIndex < plan.actions.count else { break }
-                let action = plan.actions[actionIndex]
-                actionIndex += 1
+        var pendingPlan = plan
+        var processed = Set<String>()
+        let planner = NativeTopologyReconciler()
+
+        // Rebuild the plan after every observed create. This is important on
+        // macOS: creating one Space changes positional bindings for the next
+        // missing Space, so continuing through the original snapshot can
+        // target the wrong virtual/display pair or issue duplicate creates.
+        while true {
+            let entries = pendingPlan.actions.enumerated().compactMap { index, action -> (String, String, NativeTopologyReconciliationAction)? in
+                let pairIndex = index
+                guard pairIndex < virtualSpaceIDs.count * displays.count else { return nil }
+                return (virtualSpaceIDs[pairIndex / displays.count], displays[pairIndex % displays.count], action)
+            }
+            guard let entry = entries.first(where: { virtualID, display, _ in
+                !processed.contains("\(virtualID)\u{1f}\(display)")
+            }) else { break }
+            let (virtualID, display, action) = entry
+            let key = "\(virtualID)\u{1f}\(display)"
+            processed.insert(key)
                 switch action {
                 case let .retain(identity):
                     guard let space = current.spaces.first(where: { identity.matches($0) }) else {
@@ -159,8 +173,13 @@ nonisolated struct NativeSpaceReconciliationExecutor: Sendable {
                                                            nativeIdentity: NativeSpaceIdentity(observed), managedByBlazaresSpaces: true))
                     }
                 }
+                if case .create = action, let refreshed = provider.readTopology().value {
+                    current = refreshed
+                    let known = existingMappings + mappings
+                    pendingPlan = planner.plan(virtualSpaceIDs: virtualSpaceIDs, displays: displays,
+                                               topology: current, mappings: known)
+                }
             }
-        }
 
         let missing = displays.filter { display in
             !mappings.contains { $0.displayIdentifier == display }

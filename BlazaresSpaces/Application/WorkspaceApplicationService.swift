@@ -129,6 +129,14 @@ final class WorkspaceApplicationService: ObservableObject {
         Task { @MainActor [weak self] in
             await self?.loadPersistedState()
             await self?.loadNativeSpaceMappings()
+            // Native reconciliation is opt-in. Once the user has enabled the
+            // native backend, startup must reconcile against a fresh topology
+            // so a disconnected display or manually changed Space layout is
+            // surfaced immediately and missing owned Spaces can be restored.
+            if let self, self.experimentalNativeSpacesEnabled {
+                self.refreshNativeSpaceTopology()
+                self.ensureRequiredNativeSpaces()
+            }
         }
     }
 
@@ -600,9 +608,13 @@ final class WorkspaceApplicationService: ObservableObject {
     func setExperimentalNativeSpacesEnabled(_ enabled: Bool) {
         experimentalNativeSpacesEnabled = enabled
         actionStatus = enabled
-            ? "Experimental native activation enabled. Existing Spaces only; creation/deletion is not automatic."
+            ? "Native Space integration enabled. Reconciling the configured Virtual Spaces…"
             : "Experimental native activation disabled."
         appendNativeSpaceLog(enabled ? "MODE enabled" : "MODE disabled")
+        if enabled {
+            refreshNativeSpaceTopology()
+            ensureRequiredNativeSpaces()
+        }
     }
 
     func activateNextWorkspace() {
